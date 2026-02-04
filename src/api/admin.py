@@ -323,19 +323,15 @@ async def get_statistics(
 
 
 @router.post("/trigger/scrape")
-async def trigger_scrape():
-    """Manually trigger RSS scraping and return results for debugging."""
+async def trigger_scrape(db: AsyncSession = Depends(get_db)):
+    """Manually trigger RSS scraping and save to database."""
     from src.services.scraper_service import scraper_service
 
     try:
-        entries = await scraper_service.fetch_rss()
+        new_count = await scraper_service.process_feed(db)
         return {
             "status": "success",
-            "entries_fetched": len(entries),
-            "sample": [
-                {"id": e.external_id, "title": e.title[:80], "price": float(e.price) if e.price else None}
-                for e in entries[:5]
-            ] if entries else [],
+            "new_tenders_saved": new_count,
             "proxy_configured": bool(scraper_service.proxy_url),
         }
     except Exception as e:
