@@ -19,6 +19,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api import api_router
+from src.api.health import router as health_router
 from src.config import settings
 from src.scheduler import (
     analyze_tenders_job,
@@ -136,6 +137,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include health routes at root (for Railway healthcheck)
+app.include_router(health_router, tags=["Health"])
 
 # Include API routes
 app.include_router(api_router, prefix="/api/v1")
