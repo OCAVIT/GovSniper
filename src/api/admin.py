@@ -322,6 +322,30 @@ async def get_statistics(
     )
 
 
+@router.post("/trigger/scrape")
+async def trigger_scrape():
+    """Manually trigger RSS scraping and return results for debugging."""
+    from src.services.scraper_service import scraper_service
+
+    try:
+        entries = await scraper_service.fetch_rss()
+        return {
+            "status": "success",
+            "entries_fetched": len(entries),
+            "sample": [
+                {"id": e.external_id, "title": e.title[:80], "price": float(e.price) if e.price else None}
+                for e in entries[:5]
+            ] if entries else [],
+            "proxy_configured": bool(scraper_service.proxy_url),
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "proxy_configured": bool(scraper_service.proxy_url),
+        }
+
+
 @router.get("/stats/daily")
 async def get_daily_statistics(
     days: int = Query(7, ge=1, le=30),
