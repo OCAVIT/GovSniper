@@ -38,6 +38,7 @@ class EmailService:
         margin_estimate: str,
         description: str,
         payment_url: str,
+        report_price: int | None = None,
     ) -> str | None:
         """
         Send teaser email with tender summary and payment link.
@@ -50,6 +51,7 @@ class EmailService:
             margin_estimate: Margin estimate string
             description: Short tender description
             payment_url: YooKassa payment URL
+            report_price: Dynamic price based on tender value (optional)
 
         Returns:
             Resend email ID if successful, None otherwise
@@ -63,7 +65,7 @@ class EmailService:
                 margin_estimate=margin_estimate,
                 description=description,
                 payment_url=payment_url,
-                report_price=settings.report_price,
+                report_price=report_price or settings.report_price,
             )
 
             # Determine risk level for subject

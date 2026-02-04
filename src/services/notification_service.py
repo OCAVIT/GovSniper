@@ -92,6 +92,9 @@ class NotificationService:
                 # Generate payment URL
                 payment_url = payment_service.get_payment_url(tender.id, client.id)
 
+                # Get dynamic price based on tender value
+                report_price = int(payment_service.get_price_for_tender(tender.price))
+
                 # Create notification record
                 notification = Notification(
                     tender_id=tender.id,
@@ -102,7 +105,7 @@ class NotificationService:
                 db.add(notification)
                 await db.flush()
 
-                # Send email
+                # Send email with dynamic price
                 resend_id = await email_service.send_teaser_email(
                     to_email=client.email,
                     tender_title=tender.title,
@@ -111,6 +114,7 @@ class NotificationService:
                     margin_estimate=tender.margin_estimate or "не определена",
                     description=tender.teaser_description or "Описание недоступно",
                     payment_url=payment_url,
+                    report_price=report_price,
                 )
 
                 if resend_id:

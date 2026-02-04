@@ -58,8 +58,16 @@ class Settings(BaseSettings):
     # Data Retention
     data_retention_days: int = Field(default=3)
 
-    # Pricing
-    report_price: int = Field(default=990, description="Price in rubles")
+    # Pricing (tiered by tender value for better cash-flow)
+    # < 1M RUB
+    report_price_tier1: int = Field(default=990, description="Price for tenders < 1M")
+    # 1M - 10M RUB
+    report_price_tier2: int = Field(default=1990, description="Price for tenders 1M-10M")
+    # > 10M RUB
+    report_price_tier3: int = Field(default=4990, description="Price for tenders > 10M")
+
+    # Legacy/default
+    report_price: int = Field(default=990, description="Default price in rubles")
 
     # RSS Feed
     rss_feed_url: str = Field(

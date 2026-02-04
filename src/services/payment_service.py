@@ -32,8 +32,27 @@ class PaymentService:
     """Service for handling payments via YooKassa."""
 
     def __init__(self):
-        self.report_price = Decimal(str(settings.report_price))
         self.return_url = f"{settings.app_base_url}/payment/success"
+
+    def get_price_for_tender(self, tender_price: Decimal | None) -> Decimal:
+        """
+        Get report price based on tender value (tiered pricing).
+
+        Tiers:
+        - < 1M RUB: tier1 (default 990 RUB)
+        - 1M - 10M RUB: tier2 (default 1990 RUB)
+        - > 10M RUB: tier3 (default 4990 RUB)
+        """
+        if tender_price is None:
+            return Decimal(str(settings.report_price_tier1))
+
+        price = float(tender_price)
+        if price < 1_000_000:
+            return Decimal(str(settings.report_price_tier1))
+        elif price < 10_000_000:
+            return Decimal(str(settings.report_price_tier2))
+        else:
+            return Decimal(str(settings.report_price_tier3))
 
     async def create_payment(
         self,
@@ -53,13 +72,14 @@ class PaymentService:
             Tuple of (Payment entity, confirmation_url)
         """
         idempotency_key = str(uuid.uuid4())
+        report_price = self.get_price_for_tender(tender.price)
 
         try:
             # Create payment in YooKassa
             yoo_payment = YooPayment.create(
                 {
                     "amount": {
-                        "value": str(self.report_price),
+                        "value": str(report_price),
                         "currency": "RUB",
                     },
                     "confirmation": {
@@ -82,7 +102,7 @@ class PaymentService:
                 yookassa_id=yoo_payment.id,
                 tender_id=tender.id,
                 client_id=client.id,
-                amount=self.report_price,
+                amount=report_price,
                 currency="RUB",
                 status=PaymentStatus(yoo_payment.status),
                 confirmation_url=yoo_payment.confirmation.confirmation_url,
