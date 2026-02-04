@@ -60,11 +60,12 @@ def do_run_migrations(connection: Connection) -> None:
 
 async def run_async_migrations() -> None:
     """Run migrations in async mode."""
-    # Build connect_args for Supabase compatibility
-    connect_args = {}
-    db_url = settings.database_url
-    if "pooler.supabase.com" in db_url:
-        connect_args["prepared_statement_cache_size"] = 0
+    # Build connect_args for Supabase Transaction Pooler compatibility
+    # Pooler doesn't support prepared statements
+    connect_args = {
+        "prepared_statement_cache_size": 0,
+        "statement_cache_size": 0,
+    }
 
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),

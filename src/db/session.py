@@ -17,16 +17,11 @@ from src.config import settings
 connect_args = {}
 
 # For Supabase Transaction Pooler compatibility
+# Transaction Pooler doesn't support prepared statements
 if "pooler.supabase.com" in settings.database_url:
-    # Different drivers need different parameters:
-    # - asyncpg: prepared_statement_cache_size=0
-    # - psycopg: prepare_threshold=0 (or no special config needed)
     if "asyncpg" in settings.database_url:
         connect_args["prepared_statement_cache_size"] = 0
-    elif "psycopg" in settings.database_url:
-        # psycopg with Supabase Pooler - no special config needed
-        # Pooler handles this automatically
-        pass
+        connect_args["statement_cache_size"] = 0
 
 # Create async engine
 # NullPool is REQUIRED for Supabase Transaction Pooler (port 6543)
