@@ -198,14 +198,19 @@ class DocumentService:
         """
         logger.info(f"Processing tender {tender.external_id}")
 
+        # Build full URL if relative
+        tender_url = tender.url
+        if not tender_url.startswith("http"):
+            tender_url = urljoin(self.base_url, tender_url)
+
         # Fetch tender page
-        html = await self._fetch_tender_page(tender.url)
+        html = await self._fetch_tender_page(tender_url)
         if not html:
             logger.error(f"Could not fetch tender page: {tender.url}")
             return False
 
         # Extract document links
-        doc_links = self._extract_document_links(html, tender.url)
+        doc_links = self._extract_document_links(html, tender_url)
         if not doc_links:
             logger.warning(f"No document links found for tender {tender.external_id}")
             # Still mark as downloaded with empty text
