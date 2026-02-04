@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ваш отчёт готов!</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .email-wrapper {
+            background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #38a169 0%, #2f855a 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        .header .subtitle {
+            opacity: 0.9;
+            margin-top: 5px;
+        }
+        .success-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+        .content {
+            padding: 30px;
+        }
+        .message {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+        .message h2 {
+            color: #2d3748;
+            margin-bottom: 10px;
+        }
+        .tender-info {
+            background-color: #f7fafc;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+        }
+        .tender-info-label {
+            font-size: 12px;
+            color: #718096;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+        .tender-info-value {
+            font-weight: 600;
+            color: #2d3748;
+        }
+        .attachment-info {
+            background-color: #ebf8ff;
+            border: 1px solid #bee3f8;
+            padding: 15px 20px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            margin-bottom: 25px;
+        }
+        .attachment-icon {
+            font-size: 24px;
+            margin-right: 15px;
+        }
+        .attachment-text {
+            flex: 1;
+        }
+        .attachment-name {
+            font-weight: 600;
+            color: #2b6cb0;
+        }
+        .attachment-hint {
+            font-size: 12px;
+            color: #718096;
+        }
+        .tips {
+            border-top: 1px solid #e2e8f0;
+            padding-top: 25px;
+        }
+        .tips-title {
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #2d3748;
+        }
+        .tips ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .tips li {
+            padding: 8px 0;
+            padding-left: 25px;
+            position: relative;
+        }
+        .tips li:before {
+            content: "💡";
+            position: absolute;
+            left: 0;
+        }
+        .footer {
+            padding: 20px 30px;
+            background-color: #f7fafc;
+            text-align: center;
+            font-size: 12px;
+            color: #718096;
+        }
+        .footer a {
+            color: #3182ce;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="email-wrapper">
+            <div class="header">
+                <div class="success-icon">✅</div>
+                <h1>Ваш отчёт готов!</h1>
+                <div class="subtitle">Полный аудит тендера</div>
+            </div>
+
+            <div class="content">
+                <div class="message">
+                    <h2>Спасибо за покупку!</h2>
+                    <p>Ваш детальный аудит тендера готов и прикреплён к этому письму.</p>
+                </div>
+
+                <div class="tender-info">
+                    <div class="tender-info-label">Тендер</div>
+                    <div class="tender-info-value">{{ tender_title }}</div>
+                    <br>
+                    <div class="tender-info-label">Номер</div>
+                    <div class="tender-info-value">№{{ tender_id }}</div>
+                </div>
+
+                <div class="attachment-info">
+                    <div class="attachment-icon">📎</div>
+                    <div class="attachment-text">
+                        <div class="attachment-name">audit_tender_{{ tender_id }}.pdf</div>
+                        <div class="attachment-hint">Прикреплённый файл</div>
+                    </div>
+                </div>
+
+                <div class="tips">
+                    <div class="tips-title">Рекомендации по использованию отчёта:</div>
+                    <ul>
+                        <li>Внимательно изучите раздел "Скрытые риски" перед принятием решения</li>
+                        <li>Проверьте выявленные модели оборудования на соответствие вашим возможностям</li>
+                        <li>Обратите внимание на рекомендованную стратегию победы</li>
+                        <li>При необходимости свяжитесь с нами для уточнений</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="footer">
+                <p>
+                    Благодарим за использование GovSniper!<br>
+                    Если у вас есть вопросы, напишите нам на <a href="mailto:support@govsniper.ru">support@govsniper.ru</a>
+                </p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

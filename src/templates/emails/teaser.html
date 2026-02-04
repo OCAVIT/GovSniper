@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Новый тендер найден!</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .email-wrapper {
+            background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        .header .subtitle {
+            opacity: 0.9;
+            margin-top: 5px;
+        }
+        .content {
+            padding: 30px;
+        }
+        .tender-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #1a365d;
+            margin-bottom: 20px;
+            line-height: 1.4;
+        }
+        .metrics {
+            display: table;
+            width: 100%;
+            margin-bottom: 25px;
+        }
+        .metric {
+            display: table-cell;
+            text-align: center;
+            padding: 15px;
+            background-color: #f7fafc;
+            border-radius: 8px;
+        }
+        .metric-value {
+            font-size: 28px;
+            font-weight: bold;
+            display: block;
+        }
+        .metric-label {
+            font-size: 12px;
+            color: #718096;
+            text-transform: uppercase;
+        }
+        .risk-low { color: #38a169; }
+        .risk-medium { color: #d69e2e; }
+        .risk-high { color: #e53e3e; }
+        .description {
+            background-color: #f7fafc;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+        }
+        .description-title {
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #2d3748;
+        }
+        .cta-section {
+            text-align: center;
+            padding: 20px 0;
+        }
+        .cta-button {
+            display: inline-block;
+            background: linear-gradient(135deg, #3182ce 0%, #2b6cb0 100%);
+            color: white !important;
+            text-decoration: none;
+            padding: 15px 40px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 16px;
+            transition: transform 0.2s;
+        }
+        .cta-button:hover {
+            transform: translateY(-2px);
+        }
+        .price-tag {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2d3748;
+            margin-bottom: 10px;
+        }
+        .price-note {
+            font-size: 14px;
+            color: #718096;
+        }
+        .benefits {
+            margin-top: 25px;
+            padding-top: 25px;
+            border-top: 1px solid #e2e8f0;
+        }
+        .benefits-title {
+            font-weight: 600;
+            margin-bottom: 15px;
+        }
+        .benefits ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .benefits li {
+            padding: 8px 0;
+            padding-left: 25px;
+            position: relative;
+        }
+        .benefits li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #38a169;
+            font-weight: bold;
+        }
+        .footer {
+            padding: 20px 30px;
+            background-color: #f7fafc;
+            text-align: center;
+            font-size: 12px;
+            color: #718096;
+        }
+        .footer a {
+            color: #3182ce;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="email-wrapper">
+            <div class="header">
+                <h1>🎯 GovSniper</h1>
+                <div class="subtitle">Найден новый тендер по вашим ключевым словам</div>
+            </div>
+
+            <div class="content">
+                <div class="tender-title">
+                    {{ tender_title }}
+                </div>
+
+                <table class="metrics" cellspacing="10">
+                    <tr>
+                        <td class="metric">
+                            <span class="metric-value {% if risk_score <= 30 %}risk-low{% elif risk_score <= 60 %}risk-medium{% else %}risk-high{% endif %}">
+                                {{ risk_score }}%
+                            </span>
+                            <span class="metric-label">Риск</span>
+                        </td>
+                        <td class="metric">
+                            <span class="metric-value" style="font-size: 20px;">
+                                {{ margin_estimate }}
+                            </span>
+                            <span class="metric-label">Маржа</span>
+                        </td>
+                    </tr>
+                </table>
+
+                <div class="description">
+                    <div class="description-title">Краткое описание:</div>
+                    {{ description }}
+                </div>
+
+                <div class="cta-section">
+                    <div class="price-tag">{{ report_price }} ₽</div>
+                    <div class="price-note">за полный аудит тендера</div>
+                    <br>
+                    <a href="{{ payment_url }}" class="cta-button">
+                        Получить полный отчёт →
+                    </a>
+                </div>
+
+                <div class="benefits">
+                    <div class="benefits-title">Что включено в полный отчёт:</div>
+                    <ul>
+                        <li>Детальный анализ технического задания</li>
+                        <li>Выявление "зашитых" моделей оборудования</li>
+                        <li>Анализ нереалистичных сроков</li>
+                        <li>Скрытые штрафы и юридические ловушки</li>
+                        <li>Стратегия победы в тендере</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="footer">
+                <p>Тендер №{{ tender_id }}</p>
+                <p>
+                    Вы получили это письмо, потому что подписаны на уведомления GovSniper.<br>
+                    <a href="#">Отписаться</a>
+                </p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

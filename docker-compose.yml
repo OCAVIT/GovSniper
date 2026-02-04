@@ -1,0 +1,27 @@
+version: "3.8"
+
+# GovSniper Docker Compose
+# Uses Supabase for database (cloud) - configure DATABASE_URL in .env
+# No S3 storage - text is stored directly in database
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: govsniper-app
+    ports:
+      - "8080:8080"
+    environment:
+      - APP_ENV=development
+      - LOG_LEVEL=DEBUG
+    env_file:
+      - .env
+    volumes:
+      # Mount source code for development hot reload
+      - ./src:/app/src:ro
+    restart: unless-stopped
+
+networks:
+  default:
+    driver: bridge
