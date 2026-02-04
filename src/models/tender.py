@@ -57,7 +57,12 @@ class Tender(BaseModel):
 
     # Processing status
     status: Mapped[TenderStatus] = mapped_column(
-        SQLEnum(TenderStatus),
+        SQLEnum(
+            TenderStatus,
+            native_enum=True,
+            name="tenderstatus",
+            create_type=False,
+        ),
         default=TenderStatus.NEW,
         index=True,
         nullable=False,

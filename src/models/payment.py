@@ -56,7 +56,13 @@ class Payment(BaseModel):
     amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="RUB", nullable=False)
     status: Mapped[PaymentStatus] = mapped_column(
-        SQLEnum(PaymentStatus),
+        SQLEnum(
+            PaymentStatus,
+            values_callable=lambda x: [e.value for e in x],
+            native_enum=True,
+            name="paymentstatus",
+            create_type=False,
+        ),
         default=PaymentStatus.PENDING,
         nullable=False,
     )
