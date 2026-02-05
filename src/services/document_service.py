@@ -188,7 +188,21 @@ class DocumentService:
             "дата и время окончания срока подачи",
         ]
 
-        # Try to find in table structure (common format)
+        # Pattern 1: section__title + section__info structure (most common on zakupki.gov.ru)
+        for section in soup.find_all("section", class_="blockInfo__section"):
+            title_elem = section.find("span", class_="section__title")
+            info_elem = section.find("span", class_="section__info")
+            if title_elem and info_elem:
+                label_text = title_elem.get_text(strip=True).lower()
+                for pattern in deadline_labels:
+                    if pattern in label_text:
+                        value_text = info_elem.get_text(strip=True)
+                        deadline = self._parse_deadline_string(value_text)
+                        if deadline:
+                            logger.info(f"Deadline extracted from section: {deadline}")
+                            return deadline
+
+        # Pattern 2: Try to find in table structure (common format)
         for row in soup.find_all("tr"):
             cells = row.find_all(["td", "th"])
             if len(cells) >= 2:
@@ -201,7 +215,7 @@ class DocumentService:
                             logger.info(f"Deadline extracted from table: {deadline}")
                             return deadline
 
-        # Try div/span based layout (newer format)
+        # Pattern 3: div/span based layout (older format)
         for label in deadline_labels:
             # Find by text content
             elements = soup.find_all(string=lambda t: t and label in t.lower())
