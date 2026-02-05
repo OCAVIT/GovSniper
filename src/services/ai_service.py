@@ -24,20 +24,23 @@ class TokenUsage:
     estimated_cost_usd: float = 0.0
     last_reset: datetime = field(default_factory=datetime.utcnow)
 
-    # GPT-4o pricing (as of 2024): $2.50/1M input, $10/1M output
-    INPUT_COST_PER_1M = 2.50
-    OUTPUT_COST_PER_1M = 10.00
+    # Pricing per 1M tokens (as of 2024)
+    MODEL_PRICING = {
+        "gpt-4o": {"input": 2.50, "output": 10.00},
+        "gpt-4o-mini": {"input": 0.15, "output": 0.60},
+    }
 
-    def add_usage(self, prompt_tokens: int, completion_tokens: int):
+    def add_usage(self, prompt_tokens: int, completion_tokens: int, model: str = "gpt-4o-mini"):
         """Add token usage from a request."""
         self.prompt_tokens += prompt_tokens
         self.completion_tokens += completion_tokens
         self.total_tokens += prompt_tokens + completion_tokens
         self.requests_count += 1
 
-        # Calculate cost
-        input_cost = (prompt_tokens / 1_000_000) * self.INPUT_COST_PER_1M
-        output_cost = (completion_tokens / 1_000_000) * self.OUTPUT_COST_PER_1M
+        # Calculate cost based on model
+        pricing = self.MODEL_PRICING.get(model, self.MODEL_PRICING["gpt-4o-mini"])
+        input_cost = (prompt_tokens / 1_000_000) * pricing["input"]
+        output_cost = (completion_tokens / 1_000_000) * pricing["output"]
         self.estimated_cost_usd += input_cost + output_cost
 
     def to_dict(self) -> dict:
@@ -89,7 +92,8 @@ class AIService:
 
     def __init__(self):
         self.client = AsyncOpenAI(api_key=settings.openai_api_key)
-        self.model = "gpt-4o"
+        self.model = "gpt-4o"  # For deep audit (paid product)
+        self.teaser_model = "gpt-4o-mini"  # For teasers (15x cheaper)
         self.usage = TokenUsage()
         self._lock = Lock()
 
@@ -103,13 +107,14 @@ class AIService:
         with self._lock:
             self.usage.reset()
 
-    def _track_usage(self, response):
+    def _track_usage(self, response, model: str = None):
         """Track token usage from API response."""
         if hasattr(response, "usage") and response.usage:
             with self._lock:
                 self.usage.add_usage(
                     prompt_tokens=response.usage.prompt_tokens,
                     completion_tokens=response.usage.completion_tokens,
+                    model=model or self.teaser_model,
                 )
 
     async def analyze_teaser(self, text: str) -> TeaserAnalysis:
@@ -166,7 +171,7 @@ class AIService:
 
         try:
             response = await self.client.chat.completions.create(
-                model=self.model,
+                model=self.teaser_model,  # Using mini for cost efficiency
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
@@ -176,7 +181,7 @@ class AIService:
                 max_tokens=700,
             )
 
-            self._track_usage(response)
+            self._track_usage(response, model=self.teaser_model)
             result = json.loads(response.choices[0].message.content)
 
             return TeaserAnalysis(
@@ -247,7 +252,7 @@ class AIService:
                 temperature=0.2,
                 max_tokens=2000,
             )
-            self._track_usage(response)
+            self._track_usage(response, model=self.model)
             return json.loads(response.choices[0].message.content)
         except Exception as e:
             logger.error(f"Error analyzing chunk {chunk_num}: {e}")
@@ -294,7 +299,7 @@ class AIService:
                 temperature=0.3,
                 max_tokens=2000,
             )
-            self._track_usage(response)
+            self._track_usage(response, model=self.model)
             return json.loads(response.choices[0].message.content)
         except Exception as e:
             logger.error(f"Error synthesizing findings: {e}")
