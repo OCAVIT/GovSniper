@@ -392,3 +392,83 @@ async def get_daily_statistics(
         })
 
     return {"daily_stats": daily_stats}
+
+
+# ============== Token Usage Endpoints ==============
+
+
+@router.get("/tokens")
+async def get_token_usage():
+    """Get OpenAI token usage statistics."""
+    from src.services.ai_service import ai_service
+
+    return ai_service.get_usage()
+
+
+@router.post("/tokens/reset")
+async def reset_token_usage():
+    """Reset token usage counter."""
+    from src.services.ai_service import ai_service
+
+    ai_service.reset_usage()
+    return {"status": "reset", "usage": ai_service.get_usage()}
+
+
+# ============== Scheduler Control Endpoints ==============
+
+# Global scheduler reference (set from main.py)
+_scheduler = None
+
+
+def set_scheduler(scheduler):
+    """Set scheduler reference for control endpoints."""
+    global _scheduler
+    _scheduler = scheduler
+
+
+@router.get("/scheduler")
+async def get_scheduler_status():
+    """Get scheduler status and jobs."""
+    if _scheduler is None:
+        return {"error": "Scheduler not initialized"}
+
+    jobs = []
+    for job in _scheduler.get_jobs():
+        jobs.append({
+            "id": job.id,
+            "name": job.name,
+            "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
+            "trigger": str(job.trigger),
+        })
+
+    return {
+        "running": _scheduler.running,
+        "paused": not _scheduler.running,
+        "jobs": jobs,
+    }
+
+
+@router.post("/scheduler/pause")
+async def pause_scheduler():
+    """Pause all scheduler jobs."""
+    if _scheduler is None:
+        return {"error": "Scheduler not initialized"}
+
+    if _scheduler.running:
+        _scheduler.pause()
+        logger.info("Scheduler paused via API")
+
+    return {"status": "paused", "running": _scheduler.running}
+
+
+@router.post("/scheduler/resume")
+async def resume_scheduler():
+    """Resume scheduler jobs."""
+    if _scheduler is None:
+        return {"error": "Scheduler not initialized"}
+
+    if not _scheduler.running:
+        _scheduler.resume()
+        logger.info("Scheduler resumed via API")
+
+    return {"status": "running", "running": _scheduler.running}

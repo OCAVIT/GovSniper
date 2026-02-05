@@ -2,13 +2,64 @@
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from threading import Lock
 
 from openai import AsyncOpenAI
 
 from src.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class TokenUsage:
+    """Track token usage and costs."""
+
+    total_tokens: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    requests_count: int = 0
+    estimated_cost_usd: float = 0.0
+    last_reset: datetime = field(default_factory=datetime.utcnow)
+
+    # GPT-4o pricing (as of 2024): $2.50/1M input, $10/1M output
+    INPUT_COST_PER_1M = 2.50
+    OUTPUT_COST_PER_1M = 10.00
+
+    def add_usage(self, prompt_tokens: int, completion_tokens: int):
+        """Add token usage from a request."""
+        self.prompt_tokens += prompt_tokens
+        self.completion_tokens += completion_tokens
+        self.total_tokens += prompt_tokens + completion_tokens
+        self.requests_count += 1
+
+        # Calculate cost
+        input_cost = (prompt_tokens / 1_000_000) * self.INPUT_COST_PER_1M
+        output_cost = (completion_tokens / 1_000_000) * self.OUTPUT_COST_PER_1M
+        self.estimated_cost_usd += input_cost + output_cost
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for API response."""
+        return {
+            "total_tokens": self.total_tokens,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "requests_count": self.requests_count,
+            "estimated_cost_usd": round(self.estimated_cost_usd, 4),
+            "estimated_cost_rub": round(self.estimated_cost_usd * 95, 2),  # ~95 RUB/USD
+            "last_reset": self.last_reset.isoformat(),
+        }
+
+    def reset(self):
+        """Reset usage statistics."""
+        self.total_tokens = 0
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
+        self.requests_count = 0
+        self.estimated_cost_usd = 0.0
+        self.last_reset = datetime.utcnow()
 
 
 @dataclass
@@ -39,6 +90,27 @@ class AIService:
     def __init__(self):
         self.client = AsyncOpenAI(api_key=settings.openai_api_key)
         self.model = "gpt-4o"
+        self.usage = TokenUsage()
+        self._lock = Lock()
+
+    def get_usage(self) -> dict:
+        """Get current token usage statistics."""
+        with self._lock:
+            return self.usage.to_dict()
+
+    def reset_usage(self):
+        """Reset token usage statistics."""
+        with self._lock:
+            self.usage.reset()
+
+    def _track_usage(self, response):
+        """Track token usage from API response."""
+        if hasattr(response, "usage") and response.usage:
+            with self._lock:
+                self.usage.add_usage(
+                    prompt_tokens=response.usage.prompt_tokens,
+                    completion_tokens=response.usage.completion_tokens,
+                )
 
     async def analyze_teaser(self, text: str) -> TeaserAnalysis:
         """
@@ -86,6 +158,7 @@ class AIService:
                 max_tokens=500,
             )
 
+            self._track_usage(response)
             result = json.loads(response.choices[0].message.content)
 
             return TeaserAnalysis(
@@ -152,6 +225,7 @@ class AIService:
                 max_tokens=4000,
             )
 
+            self._track_usage(response)
             result = json.loads(response.choices[0].message.content)
 
             return DeepAnalysis(

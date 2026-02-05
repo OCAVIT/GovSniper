@@ -13,10 +13,14 @@ from contextlib import asynccontextmanager
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
+from pathlib import Path
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from src.api import api_router
 from src.api.health import router as health_router
@@ -108,6 +112,10 @@ async def lifespan(app: FastAPI):
     scheduler.start()
     logger.info("Scheduler started")
 
+    # Share scheduler with admin API for pause/resume
+    from src.api.admin import set_scheduler
+    set_scheduler(scheduler)
+
     # Run initial scrape on startup (optional, comment out if not needed)
     # await scrape_rss_job()
 
@@ -144,10 +152,18 @@ app.include_router(health_router, tags=["Health"])
 # Include API routes
 app.include_router(api_router, prefix="/api/v1")
 
+# Static files for UI dashboard
+static_dir = Path(__file__).parent / "static"
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
 
 @app.get("/")
 async def root():
-    """Root endpoint with service info."""
+    """Serve UI dashboard or return API info."""
+    index_file = static_dir / "index.html"
+    if index_file.exists():
+        return FileResponse(index_file)
     return {
         "service": "GovSniper",
         "version": "1.0.0",
