@@ -60,19 +60,48 @@ class ScraperService:
                 return match.group(1)
         return None
 
-    def _extract_price(self, title: str, summary: str) -> Decimal | None:
-        """Extract price from title or summary."""
-        # Common patterns for price in Russian tenders
-        patterns = [
-            r"(\d[\d\s]*[\d])\s*(?:руб|₽|RUB)",
-            r"НМЦ[:\s]+(\d[\d\s]*[\d])",
-            r"цена[:\s]+(\d[\d\s]*[\d])",
+    def _strip_html(self, html: str) -> str:
+        """Remove HTML tags from string."""
+        if not html:
+            return ""
+        return re.sub(r"<[^>]*>", "", html).strip()
+
+    def _fix_link(self, link: str) -> str:
+        """Normalize tender link to full URL."""
+        if not link:
+            return ""
+        if link.startswith("/"):
+            return f"https://zakupki.gov.ru{link}"
+        return link
+
+    def _extract_price(self, title: str, description: str) -> Decimal | None:
+        """Extract price from RSS description field.
+
+        zakupki.gov.ru RSS format:
+        <strong>Начальная цена контракта: </strong>198150.00
+        """
+        # Primary pattern: "Начальная цена" followed by closing </strong> then digits
+        # This is the exact format from zakupki.gov.ru RSS
+        primary_pattern = r"Начальная цена(?:[^<]*)</strong>\s*([\d\s]+(?:[.,]\d+)?)"
+        match = re.search(primary_pattern, description, re.IGNORECASE)
+        if match:
+            price_str = match.group(1).replace(" ", "").replace("\xa0", "").replace(",", ".")
+            try:
+                return Decimal(price_str)
+            except Exception:
+                pass
+
+        # Fallback patterns for other formats
+        fallback_patterns = [
+            r"Начальная\s+(?:максимальная\s+)?цена[^>]*>\s*([\d\s,.]+)",
+            r"НМЦ[:\s]+([\d\s,.]+)",
+            r"([\d\s]+(?:[.,]\d+)?)\s*(?:руб|₽|RUB)",
         ]
-        text = f"{title} {summary}"
-        for pattern in patterns:
+        text = f"{title} {description}"
+        for pattern in fallback_patterns:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
-                price_str = match.group(1).replace(" ", "").replace("\xa0", "")
+                price_str = match.group(1).replace(" ", "").replace("\xa0", "").replace(",", ".")
                 try:
                     return Decimal(price_str)
                 except Exception:
@@ -108,16 +137,30 @@ class ScraperService:
             feed = feedparser.parse(response.text)
 
             for entry in feed.entries:
-                url = entry.get("link", "")
-                external_id = self._extract_external_id(url)
+                raw_link = entry.get("link", "")
+                external_id = self._extract_external_id(raw_link)
 
                 if not external_id:
-                    logger.warning(f"Could not extract ID from URL: {url}")
+                    logger.warning(f"Could not extract ID from URL: {raw_link}")
                     continue
 
-                title = entry.get("title", "")
-                summary = entry.get("summary", "")
-                price = self._extract_price(title, summary)
+                # Get raw fields
+                raw_title = entry.get("title", "")
+                description = entry.get("summary", "") or entry.get("description", "")
+
+                # Clean HTML from title
+                title = self._strip_html(raw_title)
+
+                # Normalize link
+                url = self._fix_link(raw_link)
+
+                # Extract price from description (like n8n does)
+                price = self._extract_price(title, description)
+
+                # Customer from author field
+                customer_name = entry.get("author") or None
+                if customer_name:
+                    customer_name = self._strip_html(customer_name)
 
                 # Parse published date
                 published = None
@@ -130,7 +173,7 @@ class ScraperService:
                         title=title,
                         url=url,
                         price=price,
-                        customer_name=entry.get("author"),
+                        customer_name=customer_name,
                         published=published,
                     )
                 )
