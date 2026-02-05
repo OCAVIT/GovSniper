@@ -453,25 +453,49 @@ class LosersService:
             logger.info("Lead generation is disabled")
             return stats
 
-        # Find tenders old enough to have results
-        min_age = datetime.utcnow() - timedelta(days=settings.leadgen_min_tender_age_days)
-        max_age = datetime.utcnow() - timedelta(days=settings.leadgen_max_tender_age_days)
+        # Find tenders whose deadline has passed (old enough to have results)
+        now = datetime.utcnow()
+        min_deadline = now - timedelta(days=settings.leadgen_min_tender_age_days)
+        max_deadline = now - timedelta(days=settings.leadgen_max_tender_age_days)
 
-        # Get tenders that have been notified (processed) but not yet checked for results
-        # We need to track this separately - for now, check if they have participants
+        # Get tenders with deadline that passed 7-30 days ago
         result = await db.execute(
             select(Tender)
             .where(
                 and_(
                     Tender.status.in_([TenderStatus.NOTIFIED, TenderStatus.SOLD]),
-                    Tender.created_at < min_age,
-                    Tender.created_at > max_age,
+                    Tender.deadline.isnot(None),
+                    Tender.deadline < min_deadline,  # deadline was at least 7 days ago
+                    Tender.deadline > max_deadline,  # deadline was less than 30 days ago
                 )
             )
-            .order_by(Tender.created_at)
+            .order_by(Tender.deadline)
             .limit(limit)
         )
-        tenders = result.scalars().all()
+        tenders_with_deadline = result.scalars().all()
+
+        # Fallback: tenders without deadline, use created_at
+        if len(tenders_with_deadline) < limit:
+            remaining = limit - len(tenders_with_deadline)
+            result = await db.execute(
+                select(Tender)
+                .where(
+                    and_(
+                        Tender.status.in_([TenderStatus.NOTIFIED, TenderStatus.SOLD]),
+                        Tender.deadline.is_(None),
+                        Tender.created_at < min_deadline,
+                        Tender.created_at > max_deadline,
+                    )
+                )
+                .order_by(Tender.created_at)
+                .limit(remaining)
+            )
+            tenders_without_deadline = result.scalars().all()
+            tenders = list(tenders_with_deadline) + list(tenders_without_deadline)
+        else:
+            tenders = list(tenders_with_deadline)
+
+        logger.info(f"Found {len(tenders)} tenders for leadgen processing")
 
         for tender in tenders:
             # Check if already has participants
