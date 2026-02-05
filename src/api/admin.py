@@ -435,6 +435,7 @@ async def reset_token_usage():
 
 # Global scheduler reference (set from main.py)
 _scheduler = None
+_scheduler_paused = False  # Track paused state separately (APScheduler quirk)
 
 
 def set_scheduler(scheduler):
@@ -475,8 +476,8 @@ async def get_scheduler_status(db: AsyncSession = Depends(get_db)):
         jobs.append(job_data)
 
     return {
-        "running": _scheduler.running,
-        "paused": not _scheduler.running,
+        "running": not _scheduler_paused,  # Use our tracked state
+        "paused": _scheduler_paused,
         "jobs": jobs,
         "queue": queue_counts,
     }
@@ -485,27 +486,33 @@ async def get_scheduler_status(db: AsyncSession = Depends(get_db)):
 @router.post("/scheduler/pause")
 async def pause_scheduler():
     """Pause all scheduler jobs."""
+    global _scheduler_paused
+
     if _scheduler is None:
         return {"error": "Scheduler not initialized"}
 
-    if _scheduler.running:
+    if not _scheduler_paused:
         _scheduler.pause()
+        _scheduler_paused = True
         logger.info("Scheduler paused via API")
 
-    return {"status": "paused", "running": _scheduler.running}
+    return {"status": "paused", "running": False}
 
 
 @router.post("/scheduler/resume")
 async def resume_scheduler():
     """Resume scheduler jobs."""
+    global _scheduler_paused
+
     if _scheduler is None:
         return {"error": "Scheduler not initialized"}
 
-    if not _scheduler.running:
+    if _scheduler_paused:
         _scheduler.resume()
+        _scheduler_paused = False
         logger.info("Scheduler resumed via API")
 
-    return {"status": "running", "running": _scheduler.running}
+    return {"status": "running", "running": True}
 
 
 # ============== Notifications Endpoints ==============
