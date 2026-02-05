@@ -81,6 +81,16 @@ class Settings(BaseSettings):
         description="HTTP proxy URL for accessing zakupki.gov.ru (e.g., http://user:pass@ip:port)",
     )
 
+    # DaData API for company info lookup (free tier: 10k requests/day)
+    dadata_api_key: str = Field(default="", description="DaData API key")
+    dadata_secret_key: str = Field(default="", description="DaData secret key")
+
+    # Lead generation settings
+    leadgen_enabled: bool = Field(default=True, description="Enable automatic lead generation from losers")
+    leadgen_interval_hours: int = Field(default=6, description="Interval for lead generation job")
+    leadgen_min_tender_age_days: int = Field(default=7, description="Min days after tender deadline to check results")
+    leadgen_max_tender_age_days: int = Field(default=30, description="Max age of tenders to process for leadgen")
+
     # Logging
     log_level: str = Field(default="INFO")
 

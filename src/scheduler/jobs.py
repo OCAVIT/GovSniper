@@ -9,6 +9,7 @@ from src.models import Tender, TenderStatus
 from src.scheduler.job_stats import job_stats
 from src.services.ai_service import ai_service
 from src.services.document_service import document_service
+from src.services.losers_service import losers_service
 from src.services.notification_service import notification_service
 from src.services.scraper_service import scraper_service
 
@@ -20,6 +21,9 @@ job_stats.register_job("download_documents", "Download Documents")
 job_stats.register_job("analyze_tenders", "Analyze Tenders")
 job_stats.register_job("send_notifications", "Send Notifications")
 job_stats.register_job("cleanup_stale_data", "Cleanup Stale Data")
+job_stats.register_job("extract_losers", "Extract Tender Losers")
+job_stats.register_job("fetch_loser_contacts", "Fetch Loser Contacts")
+job_stats.register_job("create_loser_clients", "Create Clients from Losers")
 
 
 async def scrape_rss_job():
@@ -142,3 +146,70 @@ async def get_queue_counts() -> dict:
         )
         counts = {status.value: count for status, count in result.all()}
         return counts
+
+
+# ============= LEAD GENERATION JOBS =============
+
+
+async def extract_losers_job():
+    """
+    Job: Extract participants from completed tenders.
+    Runs every 6 hours.
+
+    Finds tenders old enough to have results and extracts
+    participant information from protocol pages.
+    """
+    logger.info("Starting losers extraction job")
+    job_stats.start_run("extract_losers")
+    try:
+        async with get_db_context() as db:
+            stats = await losers_service.process_completed_tenders(db, limit=20)
+            logger.info(
+                f"Losers extraction completed: "
+                f"{stats['tenders_processed']} tenders, "
+                f"{stats['participants_found']} participants"
+            )
+            job_stats.finish_run("extract_losers", processed=stats["participants_found"])
+    except Exception as e:
+        logger.error(f"Losers extraction job failed: {e}")
+        job_stats.finish_run("extract_losers", error=str(e))
+
+
+async def fetch_loser_contacts_job():
+    """
+    Job: Fetch contact information for losers via DaData.
+    Runs every 6 hours (after extraction).
+
+    Uses DaData API to get email/phone by INN.
+    Free tier: 10k requests/day.
+    """
+    logger.info("Starting loser contacts fetch job")
+    job_stats.start_run("fetch_loser_contacts")
+    try:
+        async with get_db_context() as db:
+            fetched = await losers_service.process_pending_contacts(db, limit=50)
+            logger.info(f"Loser contacts fetch completed: {fetched} contacts fetched")
+            job_stats.finish_run("fetch_loser_contacts", processed=fetched)
+    except Exception as e:
+        logger.error(f"Loser contacts fetch job failed: {e}")
+        job_stats.finish_run("fetch_loser_contacts", error=str(e))
+
+
+async def create_loser_clients_job():
+    """
+    Job: Create client subscriptions from losers with email.
+    Runs every 6 hours (after contacts fetch).
+
+    Creates clients with keywords extracted from the tender they lost,
+    so they receive notifications about similar tenders.
+    """
+    logger.info("Starting loser clients creation job")
+    job_stats.start_run("create_loser_clients")
+    try:
+        async with get_db_context() as db:
+            created = await losers_service.process_pending_clients(db, limit=50)
+            logger.info(f"Loser clients creation completed: {created} clients created")
+            job_stats.finish_run("create_loser_clients", processed=created)
+    except Exception as e:
+        logger.error(f"Loser clients creation job failed: {e}")
+        job_stats.finish_run("create_loser_clients", error=str(e))

@@ -50,6 +50,15 @@ class Client(BaseModel):
     # Notes (for admin)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Lead source tracking (for auto-generated clients from losers)
+    source: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, index=True
+    )  # "manual", "loser", "website"
+    source_inn: Mapped[str | None] = mapped_column(
+        String(12), nullable=True, index=True
+    )  # INN of the source company
+    source_tender_id: Mapped[int | None] = mapped_column(nullable=True)  # Tender they lost
+
     # Relationships
     payments: Mapped[list["Payment"]] = relationship(
         "Payment",

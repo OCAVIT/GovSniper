@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db import get_db
 from src.models import Client, Notification, Payment, PaymentStatus, Tender, TenderStatus
+from src.models.participant import ParticipantResult, TenderParticipant
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ class ClientResponse(BaseModel):
     is_active: bool
     min_price: Optional[int]
     max_price: Optional[int]
+    source: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -600,3 +602,252 @@ async def test_email(
     except Exception as e:
         logger.error(f"Test email failed: {e}")
         return {"success": False, "error": str(e)}
+
+
+# ============== Lead Generation Endpoints ==============
+
+
+class ParticipantResponse(BaseModel):
+    """Schema for participant response."""
+
+    id: int
+    tender_id: int
+    company_name: str
+    inn: Optional[str]
+    bid_amount: Optional[float]
+    result: str
+    email: Optional[str]
+    phone: Optional[str]
+    contacts_fetched: bool
+    client_created: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class LeadgenStatsResponse(BaseModel):
+    """Schema for lead generation statistics."""
+
+    total_participants: int
+    losers: int
+    winners: int
+    with_email: int
+    clients_created: int
+    pending_contacts: int
+    pending_clients: int
+
+
+@router.get("/leadgen/stats", response_model=LeadgenStatsResponse)
+async def get_leadgen_stats(db: AsyncSession = Depends(get_db)):
+    """Get lead generation statistics."""
+    # Total participants
+    total_result = await db.execute(select(func.count(TenderParticipant.id)))
+    total_participants = total_result.scalar() or 0
+
+    # Losers
+    losers_result = await db.execute(
+        select(func.count(TenderParticipant.id)).where(
+            TenderParticipant.result == ParticipantResult.LOSER
+        )
+    )
+    losers = losers_result.scalar() or 0
+
+    # Winners
+    winners_result = await db.execute(
+        select(func.count(TenderParticipant.id)).where(
+            TenderParticipant.result == ParticipantResult.WINNER
+        )
+    )
+    winners = winners_result.scalar() or 0
+
+    # With email
+    with_email_result = await db.execute(
+        select(func.count(TenderParticipant.id)).where(
+            TenderParticipant.email.isnot(None)
+        )
+    )
+    with_email = with_email_result.scalar() or 0
+
+    # Clients created
+    clients_created_result = await db.execute(
+        select(func.count(TenderParticipant.id)).where(
+            TenderParticipant.client_created == True  # noqa: E712
+        )
+    )
+    clients_created = clients_created_result.scalar() or 0
+
+    # Pending contacts (need to fetch)
+    pending_contacts_result = await db.execute(
+        select(func.count(TenderParticipant.id)).where(
+            TenderParticipant.contacts_fetched == False,  # noqa: E712
+            TenderParticipant.inn.isnot(None),
+        )
+    )
+    pending_contacts = pending_contacts_result.scalar() or 0
+
+    # Pending clients (have email, not created)
+    pending_clients_result = await db.execute(
+        select(func.count(TenderParticipant.id)).where(
+            TenderParticipant.client_created == False,  # noqa: E712
+            TenderParticipant.email.isnot(None),
+        )
+    )
+    pending_clients = pending_clients_result.scalar() or 0
+
+    return LeadgenStatsResponse(
+        total_participants=total_participants,
+        losers=losers,
+        winners=winners,
+        with_email=with_email,
+        clients_created=clients_created,
+        pending_contacts=pending_contacts,
+        pending_clients=pending_clients,
+    )
+
+
+@router.get("/leadgen/participants")
+async def list_participants(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    result_filter: Optional[str] = Query(None, description="Filter by result: WINNER, LOSER"),
+    has_email: Optional[bool] = Query(None, description="Filter by email presence"),
+    db: AsyncSession = Depends(get_db),
+):
+    """List tender participants with filtering."""
+    query = select(TenderParticipant)
+
+    if result_filter:
+        try:
+            result_enum = ParticipantResult(result_filter)
+            query = query.where(TenderParticipant.result == result_enum)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid result filter: {result_filter}")
+
+    if has_email is not None:
+        if has_email:
+            query = query.where(TenderParticipant.email.isnot(None))
+        else:
+            query = query.where(TenderParticipant.email.is_(None))
+
+    # Get total count
+    count_result = await db.execute(
+        select(func.count()).select_from(query.subquery())
+    )
+    total = count_result.scalar() or 0
+
+    # Get paginated results
+    query = query.offset(skip).limit(limit).order_by(TenderParticipant.created_at.desc())
+    result = await db.execute(query)
+    participants = result.scalars().all()
+
+    return {
+        "items": [
+            {
+                "id": p.id,
+                "tender_id": p.tender_id,
+                "company_name": p.company_name,
+                "inn": p.inn,
+                "bid_amount": float(p.bid_amount) if p.bid_amount else None,
+                "result": p.result.value,
+                "email": p.email,
+                "phone": p.phone,
+                "contacts_fetched": p.contacts_fetched,
+                "client_created": p.client_created,
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+            }
+            for p in participants
+        ],
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+    }
+
+
+@router.get("/leadgen/auto-clients")
+async def list_auto_clients(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+):
+    """List clients created automatically from losers."""
+    query = (
+        select(Client)
+        .where(Client.source == "loser")
+        .offset(skip)
+        .limit(limit)
+        .order_by(Client.created_at.desc())
+    )
+
+    result = await db.execute(query)
+    clients = result.scalars().all()
+
+    # Get total count
+    count_result = await db.execute(
+        select(func.count(Client.id)).where(Client.source == "loser")
+    )
+    total = count_result.scalar() or 0
+
+    return {
+        "items": [
+            {
+                "id": c.id,
+                "email": c.email,
+                "company": c.company,
+                "keywords": c.keywords,
+                "source_inn": c.source_inn,
+                "source_tender_id": c.source_tender_id,
+                "is_active": c.is_active,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+            for c in clients
+        ],
+        "total": total,
+    }
+
+
+@router.post("/leadgen/trigger/extract")
+async def trigger_extract_losers(db: AsyncSession = Depends(get_db)):
+    """Manually trigger loser extraction job."""
+    from src.services.losers_service import losers_service
+
+    try:
+        stats = await losers_service.process_completed_tenders(db, limit=20)
+        return {
+            "status": "success",
+            "tenders_processed": stats["tenders_processed"],
+            "participants_found": stats["participants_found"],
+        }
+    except Exception as e:
+        logger.error(f"Manual loser extraction failed: {e}")
+        return {"status": "error", "error": str(e)}
+
+
+@router.post("/leadgen/trigger/fetch-contacts")
+async def trigger_fetch_contacts(db: AsyncSession = Depends(get_db)):
+    """Manually trigger contact fetching job."""
+    from src.services.losers_service import losers_service
+    from src.config import settings
+
+    if not settings.dadata_api_key:
+        return {"status": "error", "error": "DaData API key not configured"}
+
+    try:
+        fetched = await losers_service.process_pending_contacts(db, limit=50)
+        return {"status": "success", "contacts_fetched": fetched}
+    except Exception as e:
+        logger.error(f"Manual contact fetch failed: {e}")
+        return {"status": "error", "error": str(e)}
+
+
+@router.post("/leadgen/trigger/create-clients")
+async def trigger_create_clients(db: AsyncSession = Depends(get_db)):
+    """Manually trigger client creation job."""
+    from src.services.losers_service import losers_service
+
+    try:
+        created = await losers_service.process_pending_clients(db, limit=50)
+        return {"status": "success", "clients_created": created}
+    except Exception as e:
+        logger.error(f"Manual client creation failed: {e}")
+        return {"status": "error", "error": str(e)}

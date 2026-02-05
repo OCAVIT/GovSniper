@@ -13,6 +13,7 @@ from .base import BaseModel
 
 if TYPE_CHECKING:
     from .notification import Notification
+    from .participant import TenderParticipant
     from .payment import Payment
 
 
@@ -87,6 +88,11 @@ class Tender(BaseModel):
     )
     notifications: Mapped[list["Notification"]] = relationship(
         "Notification",
+        back_populates="tender",
+        cascade="all, delete-orphan",
+    )
+    participants: Mapped[list["TenderParticipant"]] = relationship(
+        "TenderParticipant",
         back_populates="tender",
         cascade="all, delete-orphan",
     )

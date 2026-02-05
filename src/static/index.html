@@ -361,7 +361,12 @@
                         <div class="p-4 hover:bg-gray-50">
                             <div class="flex items-center justify-between">
                                 <div>
-                                    <div class="text-sm font-medium text-gray-900" x-text="client.email"></div>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-sm font-medium text-gray-900" x-text="client.email"></span>
+                                        <template x-if="client.source === 'loser'">
+                                            <span class="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-xs rounded font-medium">Авто</span>
+                                        </template>
+                                    </div>
                                     <div class="text-xs text-gray-500 mt-0.5">
                                         <span x-text="client.name || ''"></span>
                                         <template x-if="client.company">
@@ -788,7 +793,10 @@
                         'download_documents': 'Загрузка документов',
                         'analyze_tenders': 'AI Анализ',
                         'send_notifications': 'Отправка уведомлений',
-                        'cleanup_stale_data': 'Очистка данных'
+                        'cleanup_stale_data': 'Очистка данных',
+                        'extract_losers': 'Парсинг проигравших',
+                        'fetch_loser_contacts': 'Получение контактов',
+                        'create_loser_clients': 'Создание клиентов'
                     };
                     return names[jobId] || jobId;
                 },

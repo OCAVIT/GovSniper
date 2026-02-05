@@ -28,7 +28,10 @@ from src.config import settings
 from src.scheduler import (
     analyze_tenders_job,
     cleanup_stale_data_job,
+    create_loser_clients_job,
     download_documents_job,
+    extract_losers_job,
+    fetch_loser_contacts_job,
     scrape_rss_job,
     send_notifications_job,
 )
@@ -92,6 +95,37 @@ def setup_scheduler():
         name="Cleanup Stale Data",
         replace_existing=True,
     )
+
+    # Lead generation jobs (run every leadgen_interval_hours, default 6)
+    if settings.leadgen_enabled:
+        # Extract losers from completed tenders
+        scheduler.add_job(
+            extract_losers_job,
+            trigger=IntervalTrigger(hours=settings.leadgen_interval_hours),
+            id="extract_losers",
+            name="Extract Tender Losers",
+            replace_existing=True,
+        )
+
+        # Fetch contact info via DaData (runs 30 min after extraction)
+        scheduler.add_job(
+            fetch_loser_contacts_job,
+            trigger=IntervalTrigger(hours=settings.leadgen_interval_hours),
+            id="fetch_loser_contacts",
+            name="Fetch Loser Contacts",
+            replace_existing=True,
+        )
+
+        # Create clients from losers (runs 1 hour after extraction)
+        scheduler.add_job(
+            create_loser_clients_job,
+            trigger=IntervalTrigger(hours=settings.leadgen_interval_hours),
+            id="create_loser_clients",
+            name="Create Clients from Losers",
+            replace_existing=True,
+        )
+
+        logger.info("Lead generation jobs configured")
 
     logger.info("Scheduler jobs configured")
 
