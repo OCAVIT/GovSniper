@@ -47,7 +47,11 @@ class NotificationService:
 
         matching = []
         for client in clients:
-            if client.matches_tender(tender.title, float(tender.price) if tender.price else None):
+            if client.matches_tender(
+                tender.title,
+                float(tender.price) if tender.price else None,
+                tender.teaser_description,
+            ):
                 # Check if we already notified this client about this tender
                 existing = await db.execute(
                     select(Notification).where(

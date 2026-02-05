@@ -74,13 +74,19 @@ class Client(BaseModel):
     def __repr__(self) -> str:
         return f"<Client(id={self.id}, email={self.email}, active={self.is_active})>"
 
-    def matches_tender(self, tender_title: str, tender_price: float | None = None) -> bool:
+    def matches_tender(
+        self,
+        tender_title: str,
+        tender_price: float | None = None,
+        tender_description: str | None = None,
+    ) -> bool:
         """
         Check if tender matches client's subscription criteria.
 
         Args:
             tender_title: Tender title to match against keywords
             tender_price: Tender price (optional) to check against filters
+            tender_description: Tender description to match against keywords
 
         Returns:
             True if tender matches client's criteria
@@ -88,9 +94,13 @@ class Client(BaseModel):
         if not self.is_active:
             return False
 
+        # Combine title and description for keyword matching
+        search_text = tender_title.lower()
+        if tender_description:
+            search_text += " " + tender_description.lower()
+
         # Check keywords (case-insensitive)
-        title_lower = tender_title.lower()
-        keyword_match = any(kw.lower() in title_lower for kw in self.keywords)
+        keyword_match = any(kw.lower() in search_text for kw in self.keywords)
 
         if not keyword_match:
             return False
