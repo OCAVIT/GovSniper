@@ -35,42 +35,126 @@ class DocumentService:
         self.proxy_url = settings.proxy_url
 
     def _get_http_client(self, timeout: float = 30.0) -> httpx.AsyncClient:
-        """Get HTTP client with proxy if configured."""
-        kwargs = {"timeout": timeout, "follow_redirects": True}
+        """Get HTTP client with proxy and browser-like headers."""
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+        }
+        kwargs = {
+            "timeout": timeout,
+            "follow_redirects": True,
+            "headers": headers,
+        }
         if self.proxy_url:
             kwargs["proxy"] = self.proxy_url
         return httpx.AsyncClient(**kwargs)
 
-    async def _fetch_tender_page(self, url: str) -> str | None:
-        """Fetch tender page HTML."""
-        try:
-            async with self._get_http_client(timeout=30.0) as client:
-                response = await client.get(url)
-                response.raise_for_status()
-                return response.text
-        except Exception as e:
-            logger.error(f"Error fetching tender page {url}: {e}")
-            return None
+    async def _fetch_tender_page(self, url: str, retries: int = 2) -> str | None:
+        """Fetch tender page HTML with retry logic."""
+        import asyncio
+
+        for attempt in range(retries + 1):
+            try:
+                async with self._get_http_client(timeout=30.0) as client:
+                    response = await client.get(url)
+                    response.raise_for_status()
+                    return response.text
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 404:
+                    # 404 is expected for cancelled/deleted tenders, don't retry
+                    logger.warning(f"Tender page not found (404): {url}")
+                    return None
+                elif e.response.status_code >= 500 and attempt < retries:
+                    # Server error, retry after delay
+                    logger.warning(f"Server error {e.response.status_code}, retrying...")
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                else:
+                    logger.error(f"Error fetching tender page {url}: {e}")
+                    return None
+            except httpx.TimeoutException:
+                if attempt < retries:
+                    logger.warning(f"Timeout fetching {url}, retrying...")
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                logger.error(f"Timeout fetching tender page after {retries} retries: {url}")
+                return None
+            except Exception as e:
+                logger.error(f"Error fetching tender page {url}: {e}")
+                return None
+
+        return None
 
     def _extract_document_links(self, html: str, base_url: str) -> list[str]:
-        """Extract document download links from tender page."""
+        """Extract document download links from tender page.
+
+        zakupki.gov.ru document links patterns:
+        - /epz/main/public/download/downloadDocument.html?id=...
+        - Direct file links (.pdf, .docx, .doc, .zip, .rar, .xlsx, .xls)
+        - /epz/order/notice/.../download/...
+        - printForm links for generating documents
+        """
         soup = BeautifulSoup(html, "lxml")
         links = []
 
-        # Common patterns for document links on zakupki.gov.ru
+        # Pattern 1: Look for document download links in zakupki.gov.ru format
         for a_tag in soup.find_all("a", href=True):
             href = a_tag["href"]
+            href_lower = href.lower()
 
-            # Check if it's a document link
-            if any(ext in href.lower() for ext in [".pdf", ".docx", ".doc", ".zip", ".rar"]):
+            # zakupki.gov.ru specific download patterns
+            if any(pattern in href_lower for pattern in [
+                "downloadDocument.html",
+                "download/downloadDocument",
+                "/download/",
+                "fileDownload",
+                "printForm",
+                "getFile",
+            ]):
                 full_url = urljoin(base_url, href)
                 links.append(full_url)
                 continue
 
-            # Check for download endpoints
-            if "/download/" in href or "fileDownload" in href:
+            # Direct file extensions
+            if any(ext in href_lower for ext in [
+                ".pdf", ".docx", ".doc", ".zip", ".rar",
+                ".xlsx", ".xls", ".xml", ".sig"
+            ]):
                 full_url = urljoin(base_url, href)
                 links.append(full_url)
+                continue
+
+        # Pattern 2: Look for attachment blocks (common in zakupki.gov.ru)
+        # These may have specific classes like 'attachment', 'file-row', etc.
+        attachment_containers = soup.find_all(
+            class_=lambda x: x and any(
+                cls in str(x).lower()
+                for cls in ["attachment", "file", "document", "download"]
+            )
+        )
+        for container in attachment_containers:
+            for a_tag in container.find_all("a", href=True):
+                href = a_tag["href"]
+                if href and not href.startswith("#") and not href.startswith("javascript"):
+                    full_url = urljoin(base_url, href)
+                    if full_url not in links:
+                        links.append(full_url)
+
+        # Pattern 3: Look for onclick handlers that might contain download URLs
+        for element in soup.find_all(attrs={"onclick": True}):
+            onclick = element.get("onclick", "")
+            # Extract URLs from onclick handlers
+            url_match = re.search(r"['\"]([^'\"]*(?:download|file|document)[^'\"]*)['\"]", onclick, re.IGNORECASE)
+            if url_match:
+                href = url_match.group(1)
+                if href and not href.startswith("javascript"):
+                    full_url = urljoin(base_url, href)
+                    if full_url not in links:
+                        links.append(full_url)
 
         # Remove duplicates while preserving order
         seen = set()
@@ -182,6 +266,58 @@ class DocumentService:
 
         return ""
 
+    # Known tender type URL patterns on zakupki.gov.ru
+    # Format: /epz/order/notice/{type}/view/{page}.html
+    TENDER_TYPES = [
+        "ea20",    # Electronic auction (44-FZ)
+        "zk20",    # Request for quotations (44-FZ)
+        "ep44",    # Electronic procedure (44-FZ)
+        "ok20",    # Open competition (44-FZ)
+        "zkk20",   # Competitive request for quotations
+        "oku20",   # Open competition in electronic form
+        "ezk20",   # Electronic request for quotations
+        "ezp20",   # Electronic request for proposals
+        "ek20",    # Electronic competition
+        "ea44",    # Electronic auction 44-FZ
+        "ok44",    # Open competition 44-FZ
+        "zp44",    # Request for proposals 44-FZ
+    ]
+
+    def _build_documents_url(self, tender_url: str) -> str:
+        """Convert tender URL to documents page URL.
+
+        zakupki.gov.ru tender pages have multiple views:
+        - common-info.html - general information
+        - documents.html - documents and attachments
+        - supplier-results.html - supplier info
+
+        RSS feed gives common-info URLs, but documents are on documents.html
+        """
+        # Replace common-info.html with documents.html
+        documents_url = tender_url.replace("common-info.html", "documents.html")
+
+        # Also handle other view pages
+        documents_url = documents_url.replace("supplier-results.html", "documents.html")
+        documents_url = documents_url.replace("event-journal.html", "documents.html")
+
+        return documents_url
+
+    def _get_alternative_urls(self, tender_url: str, reg_number: str) -> list[str]:
+        """Generate alternative URLs to try if the main URL fails.
+
+        Sometimes the tender type in the URL is incorrect,
+        try common types as alternatives.
+        """
+        alternatives = []
+
+        # Extract base parts
+        for tender_type in self.TENDER_TYPES:
+            alt_url = f"{self.base_url}/epz/order/notice/{tender_type}/view/documents.html?regNumber={reg_number}"
+            if alt_url != tender_url and alt_url not in alternatives:
+                alternatives.append(alt_url)
+
+        return alternatives[:5]  # Limit to 5 alternatives
+
     async def process_tender(self, tender: Tender, db: AsyncSession) -> bool:
         """
         Download documents for a tender and extract text.
@@ -203,14 +339,39 @@ class DocumentService:
         if not tender_url.startswith("http"):
             tender_url = urljoin(self.base_url, tender_url)
 
-        # Fetch tender page
-        html = await self._fetch_tender_page(tender_url)
+        # Convert to documents page URL
+        documents_url = self._build_documents_url(tender_url)
+        logger.debug(f"Documents URL: {documents_url}")
+
+        # Fetch documents page (not common-info)
+        html = await self._fetch_tender_page(documents_url)
+
+        if not html:
+            # Try alternative URL patterns with different tender types
+            logger.info(f"Primary URL failed, trying alternatives for {tender.external_id}")
+            alternatives = self._get_alternative_urls(documents_url, tender.external_id)
+            for alt_url in alternatives:
+                html = await self._fetch_tender_page(alt_url)
+                if html:
+                    logger.info(f"Found working alternative URL: {alt_url}")
+                    documents_url = alt_url
+                    break
+
+        if not html:
+            # Last resort: try original URL
+            logger.warning(f"All alternatives failed, trying original URL")
+            html = await self._fetch_tender_page(tender_url)
+
         if not html:
             logger.error(f"Could not fetch tender page: {tender.url}")
+            # Mark as downloaded with empty text to avoid retrying indefinitely
+            tender.status = TenderStatus.DOWNLOADED
+            tender.raw_text = ""
+            await db.commit()
             return False
 
         # Extract document links
-        doc_links = self._extract_document_links(html, tender_url)
+        doc_links = self._extract_document_links(html, documents_url)
         if not doc_links:
             logger.warning(f"No document links found for tender {tender.external_id}")
             # Still mark as downloaded with empty text
