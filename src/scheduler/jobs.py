@@ -32,11 +32,13 @@ async def download_documents_job():
     """
     Job: Download documents for NEW tenders.
     Runs every 3 minutes.
+    Increased limit to process queue faster.
     """
     logger.info("Starting document download job")
     try:
         async with get_db_context() as db:
-            processed = await document_service.process_new_tenders(db, limit=5)
+            # Increased limit from 5 to 20 to process queue faster
+            processed = await document_service.process_new_tenders(db, limit=20)
             logger.info(f"Document download completed: {processed} tenders processed")
     except Exception as e:
         logger.error(f"Document download job failed: {e}")

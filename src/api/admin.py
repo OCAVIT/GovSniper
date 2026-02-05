@@ -70,9 +70,11 @@ class TenderResponse(BaseModel):
     title: str
     url: str
     price: Optional[float]
+    customer_name: Optional[str]
     status: str
     risk_score: Optional[int]
     margin_estimate: Optional[str]
+    teaser_description: Optional[str]
     created_at: datetime
 
     class Config:
