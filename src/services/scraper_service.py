@@ -77,37 +77,50 @@ class ScraperService:
     def _extract_price(self, title: str, description: str) -> Decimal | None:
         """Extract price from RSS description field.
 
-        zakupki.gov.ru RSS format:
-        <strong>Начальная цена контракта: </strong>198150.00
-        or
-        Начальная (максимальная) цена контракта: 198150.00
+        zakupki.gov.ru RSS format (actual 2026):
+        <strong>Начальная цена контракта: </strong>501600.00<strong> Валюта: </strong>
         """
-        # Primary pattern: "Начальная цена" followed by closing </strong> then digits
-        # This is the exact format from zakupki.gov.ru RSS
-        primary_pattern = r"Начальная цена(?:[^<]*)</strong>\s*([\d\s]+(?:[.,]\d+)?)"
-        match = re.search(primary_pattern, description, re.IGNORECASE)
+        # Primary pattern: exact format from zakupki.gov.ru RSS
+        # "Начальная цена контракта: </strong>" followed by digits, then "<strong>"
+        primary_pattern = r"[Нн]ачальная\s+цена\s+контракта:\s*</strong>\s*([\d\s,.]+)"
+        match = re.search(primary_pattern, description)
         if match:
-            price_str = match.group(1).replace(" ", "").replace("\xa0", "").replace(",", ".")
+            price_str = match.group(1).strip().replace(" ", "").replace("\xa0", "").replace(",", ".")
             try:
                 price = Decimal(price_str)
-                logger.debug(f"Price extracted (primary pattern): {price}")
-                return price
+                if price > 0:
+                    logger.debug(f"Price extracted (primary): {price}")
+                    return price
             except Exception as e:
                 logger.debug(f"Failed to parse price '{price_str}': {e}")
 
-        # Fallback patterns for other formats
+        # Secondary pattern: with optional (максимальная) and </strong> tag
+        secondary_pattern = r"[Нн]ачальная\s+(?:\([^)]+\)\s+)?цена[^:]*:\s*(?:</strong>)?\s*([\d\s,.]+)"
+        match = re.search(secondary_pattern, description)
+        if match:
+            price_str = match.group(1).strip().replace(" ", "").replace("\xa0", "").replace(",", ".")
+            try:
+                price = Decimal(price_str)
+                if price > 0:
+                    logger.debug(f"Price extracted (secondary): {price}")
+                    return price
+            except Exception:
+                pass
+
+        # Fallback patterns for edge cases
         fallback_patterns = [
-            # Pattern for "Начальная (максимальная) цена контракта: 123456.00"
-            r"Начальная\s*(?:\(максимальная\))?\s*цена[^:]*:\s*([\d\s,.]+)",
-            r"Начальная\s+(?:максимальная\s+)?цена[^>]*>\s*([\d\s,.]+)",
+            # НМЦ format
             r"НМЦ[:\s]+([\d\s,.]+)",
-            r"([\d\s]+(?:[.,]\d+)?)\s*(?:руб|₽|RUB)",
+            # Price followed by currency
+            r"([\d\s]+(?:[.,]\d{2})?)\s*(?:<strong>)?\s*[Вв]алюта",
+            # Generic price pattern with rubles
+            r"([\d]{4,}(?:[.,]\d+)?)\s*(?:руб|₽|RUB)",
         ]
-        text = f"{title} {description}"
+
         for i, pattern in enumerate(fallback_patterns):
-            match = re.search(pattern, text, re.IGNORECASE)
+            match = re.search(pattern, description, re.IGNORECASE)
             if match:
-                price_str = match.group(1).replace(" ", "").replace("\xa0", "").replace(",", ".")
+                price_str = match.group(1).strip().replace(" ", "").replace("\xa0", "").replace(",", ".")
                 try:
                     price = Decimal(price_str)
                     if price > 0:
@@ -118,7 +131,7 @@ class ScraperService:
 
         # Log when price not found for debugging
         if description:
-            logger.debug(f"Price not found in description (first 200 chars): {description[:200]}")
+            logger.warning(f"Price NOT FOUND in description: {description[:300]}")
         return None
 
     def _should_skip(self, title: str, price: Decimal | None) -> bool:
