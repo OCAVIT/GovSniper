@@ -35,7 +35,10 @@
                                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
                             </svg>
-                            <span x-show="!loading" x-text="formatLastUpdate()"></span>
+                            <button @click="autoRefresh()" x-show="!loading" class="hover:text-gray-600" title="Обновить">
+                                <span x-text="formatLastUpdate()"></span>
+                            </button>
+                            <span x-show="!autoRefreshEnabled" class="text-orange-500 ml-1" title="Авто-обновление выключено">(пауза)</span>
                         </div>
                         <!-- Token Usage (compact) -->
                         <div class="hidden sm:flex items-center gap-2 text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
@@ -51,7 +54,7 @@
                                     class="px-3 py-1.5 rounded text-sm font-medium transition">
                                 Обзор
                             </button>
-                            <button @click="page = 'tenders'; loadTenders()"
+                            <button @click="page = 'tenders'; loadTenders(true)"
                                     :class="page === 'tenders' ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-100'"
                                     class="px-3 py-1.5 rounded text-sm font-medium transition">
                                 Тендеры
@@ -151,52 +154,101 @@
                     </div>
                 </div>
 
+                <!-- Queue Stats -->
+                <div class="bg-white rounded-lg border border-gray-200 p-4 mb-6">
+                    <h2 class="text-sm font-medium text-gray-700 mb-3">Очередь обработки</h2>
+                    <div class="grid grid-cols-5 gap-2 text-center">
+                        <template x-for="status in ['NEW', 'DOWNLOADED', 'ANALYZED', 'NOTIFIED', 'SOLD']" :key="status">
+                            <div class="p-2 rounded" :class="queueColors(status)">
+                                <div class="text-lg font-bold" x-text="queueCounts[status] || 0"></div>
+                                <div class="text-xs opacity-75" x-text="statusLabel(status)"></div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
                 <!-- Scheduler Jobs -->
                 <div class="bg-white rounded-lg border border-gray-200 p-4">
                     <div class="flex items-center justify-between mb-3">
-                        <h2 class="text-sm font-medium text-gray-700">Задачи</h2>
-                        <button @click="toggleScheduler()"
-                                class="px-3 py-1 rounded text-xs font-medium transition"
-                                :class="schedulerRunning ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'">
-                            <span x-text="schedulerRunning ? 'Остановить' : 'Запустить'"></span>
-                        </button>
+                        <h2 class="text-sm font-medium text-gray-700">Задачи планировщика</h2>
+                        <div class="flex items-center gap-2">
+                            <button @click="autoRefreshEnabled = !autoRefreshEnabled"
+                                    class="px-2 py-1 rounded text-xs font-medium transition"
+                                    :class="autoRefreshEnabled ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'">
+                                <span x-text="autoRefreshEnabled ? 'Авто' : 'Ручн'"></span>
+                            </button>
+                            <button @click="toggleScheduler()"
+                                    class="px-3 py-1 rounded text-xs font-medium transition"
+                                    :class="schedulerRunning ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'">
+                                <span x-text="schedulerRunning ? 'Остановить' : 'Запустить'"></span>
+                            </button>
+                        </div>
                     </div>
-                    <div class="space-y-2">
+                    <div class="space-y-3">
                         <template x-for="job in schedulerJobs" :key="job.id">
-                            <div class="flex items-center justify-between text-sm py-1">
-                                <span class="text-gray-700" x-text="job.name"></span>
-                                <span class="text-xs text-gray-400" x-text="job.next_run ? formatTime(job.next_run) : '—'"></span>
+                            <div class="flex items-center justify-between text-sm py-2 border-b border-gray-100 last:border-0">
+                                <div class="flex-1">
+                                    <div class="flex items-center gap-2">
+                                        <span class="font-medium text-gray-800" x-text="jobNameRu(job.id)"></span>
+                                        <template x-if="job.stats && job.stats.success === false">
+                                            <span class="px-1.5 py-0.5 bg-red-100 text-red-600 text-xs rounded">Ошибка</span>
+                                        </template>
+                                    </div>
+                                    <div class="text-xs text-gray-400 mt-0.5">
+                                        <template x-if="job.stats">
+                                            <span>
+                                                Последний: <span x-text="formatTimeAgo(job.stats.finished_at)"></span>
+                                                <template x-if="job.stats.processed > 0">
+                                                    <span class="text-green-600 ml-1">(+<span x-text="job.stats.processed"></span>)</span>
+                                                </template>
+                                            </span>
+                                        </template>
+                                        <template x-if="!job.stats">
+                                            <span>Ещё не запускался</span>
+                                        </template>
+                                    </div>
+                                </div>
+                                <div class="text-right text-xs">
+                                    <div class="text-gray-500">Следующий</div>
+                                    <div class="font-medium text-gray-700" x-text="job.next_run ? formatTimeMSK(job.next_run) : '—'"></div>
+                                </div>
                             </div>
                         </template>
+                    </div>
+                    <div class="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-400">
+                        Всего запусков: <span x-text="schedulerJobs.reduce((a, j) => a + (j.total_runs || 0), 0)"></span>
+                        | Обработано: <span x-text="schedulerJobs.reduce((a, j) => a + (j.total_processed || 0), 0)"></span>
                     </div>
                 </div>
             </div>
 
             <!-- Tenders -->
             <div x-show="page === 'tenders'" class="fade-in">
-                <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
                     <div class="flex gap-2 flex-wrap">
-                        <button @click="tenderFilter = ''; loadTenders()"
+                        <button @click="tenderFilter = ''; loadTenders(true)"
                             :class="tenderFilter === '' ? 'bg-gray-900 text-white' : 'bg-white text-gray-600'"
                             class="px-3 py-1.5 rounded text-sm border border-gray-200">
                         Все
                     </button>
                         <template x-for="status in ['NEW', 'DOWNLOADED', 'ANALYZED', 'NOTIFIED', 'SOLD']" :key="status">
-                            <button @click="tenderFilter = status; loadTenders()"
+                            <button @click="tenderFilter = status; loadTenders(true)"
                                     :class="tenderFilter === status ? 'bg-gray-900 text-white' : 'bg-white text-gray-600'"
                                     class="px-3 py-1.5 rounded text-sm border border-gray-200"
                                     x-text="statusLabel(status)">
                             </button>
                         </template>
                     </div>
-                    <button @click="loadTenders()"
-                            class="px-3 py-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded text-sm flex items-center gap-1"
-                            :class="loading && 'opacity-50'">
-                        <svg class="w-4 h-4" :class="loading && 'animate-spin'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                        </svg>
-                        <span class="hidden sm:inline">Обновить</span>
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs text-gray-500" x-text="`${tendersTotal} тендеров`"></span>
+                        <button @click="loadTenders()"
+                                class="px-3 py-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded text-sm flex items-center gap-1"
+                                :class="loading && 'opacity-50'">
+                            <svg class="w-4 h-4" :class="loading && 'animate-spin'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
 
                 <div class="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
@@ -245,6 +297,39 @@
                             </template>
                         </div>
                     </template>
+                </div>
+
+                <!-- Pagination -->
+                <div class="flex items-center justify-between mt-4" x-show="tendersTotalPages > 1">
+                    <div class="text-sm text-gray-500">
+                        Стр. <span x-text="tendersPage"></span> из <span x-text="tendersTotalPages"></span>
+                    </div>
+                    <div class="flex gap-1">
+                        <button @click="goToPage(1)" :disabled="tendersPage === 1"
+                                class="px-3 py-1.5 text-sm border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                            ««
+                        </button>
+                        <button @click="goToPage(tendersPage - 1)" :disabled="tendersPage === 1"
+                                class="px-3 py-1.5 text-sm border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                            «
+                        </button>
+                        <template x-for="p in Math.min(5, tendersTotalPages)" :key="p">
+                            <button @click="goToPage(Math.max(1, tendersPage - 2) + p - 1)"
+                                    :class="tendersPage === Math.max(1, tendersPage - 2) + p - 1 ? 'bg-gray-900 text-white' : 'hover:bg-gray-50'"
+                                    class="px-3 py-1.5 text-sm border border-gray-200 rounded"
+                                    x-text="Math.max(1, tendersPage - 2) + p - 1"
+                                    x-show="Math.max(1, tendersPage - 2) + p - 1 <= tendersTotalPages">
+                            </button>
+                        </template>
+                        <button @click="goToPage(tendersPage + 1)" :disabled="tendersPage >= tendersTotalPages"
+                                class="px-3 py-1.5 text-sm border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                            »
+                        </button>
+                        <button @click="goToPage(tendersTotalPages)" :disabled="tendersPage >= tendersTotalPages"
+                                class="px-3 py-1.5 text-sm border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                            »»
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -453,6 +538,9 @@
                 dailyStats: [],
                 maxRevenue: 1,
                 tenders: [],
+                tendersTotal: 0,
+                tendersPage: 1,
+                tendersPerPage: 30,
                 tenderFilter: '',
                 clients: [],
                 selectedTender: null,
@@ -470,7 +558,9 @@
                 },
 
                 lastUpdate: null,
-                refreshInterval: 15000, // 15 seconds
+                refreshInterval: 60000, // 60 seconds - reduced load on Railway
+                autoRefreshEnabled: true,
+                queueCounts: {}
 
                 async init() {
                     await Promise.all([
@@ -486,6 +576,8 @@
                 },
 
                 async autoRefresh() {
+                    if (!this.autoRefreshEnabled) return;
+
                     if (this.page === 'dashboard') {
                         await Promise.all([
                             this.loadStats(),
@@ -555,6 +647,7 @@
                         const data = await this.api('/admin/scheduler');
                         this.schedulerRunning = data.running;
                         this.schedulerJobs = data.jobs || [];
+                        this.queueCounts = data.queue || {};
                     } catch (e) {
                         console.error('Failed to load scheduler:', e);
                     }
@@ -570,15 +663,29 @@
                     }
                 },
 
-                async loadTenders() {
+                async loadTenders(resetPage = false) {
+                    if (resetPage) this.tendersPage = 1;
                     this.loading = true;
                     try {
+                        const skip = (this.tendersPage - 1) * this.tendersPerPage;
                         const filter = this.tenderFilter ? `&status=${this.tenderFilter}` : '';
-                        this.tenders = await this.api(`/admin/tenders?limit=50${filter}`);
+                        const data = await this.api(`/admin/tenders?skip=${skip}&limit=${this.tendersPerPage}${filter}`);
+                        this.tenders = data.items || data;
+                        this.tendersTotal = data.total || this.tenders.length;
                     } catch (e) {
                         console.error('Failed to load tenders:', e);
                     }
                     this.loading = false;
+                },
+
+                get tendersTotalPages() {
+                    return Math.ceil(this.tendersTotal / this.tendersPerPage) || 1;
+                },
+
+                async goToPage(page) {
+                    if (page < 1 || page > this.tendersTotalPages) return;
+                    this.tendersPage = page;
+                    await this.loadTenders();
                 },
 
                 async loadClients() {
@@ -648,6 +755,53 @@
                     if (!isoStr) return '';
                     const d = new Date(isoStr);
                     return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+                },
+
+                formatTimeMSK(isoStr) {
+                    if (!isoStr) return '';
+                    const d = new Date(isoStr);
+                    return d.toLocaleTimeString('ru-RU', {
+                        timeZone: 'Europe/Moscow',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
+                },
+
+                formatTimeAgo(isoStr) {
+                    if (!isoStr) return 'никогда';
+                    const d = new Date(isoStr);
+                    const now = new Date();
+                    const diffMs = now - d;
+                    const diffSec = Math.floor(diffMs / 1000);
+                    const diffMin = Math.floor(diffSec / 60);
+                    const diffHour = Math.floor(diffMin / 60);
+
+                    if (diffSec < 60) return 'только что';
+                    if (diffMin < 60) return `${diffMin} мин назад`;
+                    if (diffHour < 24) return `${diffHour} ч назад`;
+                    return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+                },
+
+                jobNameRu(jobId) {
+                    const names = {
+                        'scrape_rss': 'RSS Парсинг',
+                        'download_documents': 'Загрузка документов',
+                        'analyze_tenders': 'AI Анализ',
+                        'send_notifications': 'Отправка уведомлений',
+                        'cleanup_stale_data': 'Очистка данных'
+                    };
+                    return names[jobId] || jobId;
+                },
+
+                queueColors(status) {
+                    const colors = {
+                        'NEW': 'bg-gray-100 text-gray-700',
+                        'DOWNLOADED': 'bg-blue-100 text-blue-700',
+                        'ANALYZED': 'bg-yellow-100 text-yellow-700',
+                        'NOTIFIED': 'bg-purple-100 text-purple-700',
+                        'SOLD': 'bg-green-100 text-green-700'
+                    };
+                    return colors[status] || 'bg-gray-100 text-gray-700';
                 },
 
                 formatDateTimeMSK(isoStr) {

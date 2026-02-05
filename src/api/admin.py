@@ -210,27 +210,42 @@ async def delete_client(
 # ============== Tender Endpoints ==============
 
 
-@router.get("/tenders", response_model=list[TenderResponse])
+@router.get("/tenders")
 async def list_tenders(
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(50, ge=1, le=200),
     status: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    """List tenders with optional status filter."""
-    query = select(Tender).offset(skip).limit(limit).order_by(Tender.created_at.desc())
+    """List tenders with pagination and optional status filter."""
+    # Base query with filters
+    base_query = select(Tender)
 
     if status:
         try:
             tender_status = TenderStatus(status)
-            query = query.where(Tender.status == tender_status)
+            base_query = base_query.where(Tender.status == tender_status)
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
 
+    # Get total count
+    count_result = await db.execute(
+        select(func.count()).select_from(base_query.subquery())
+    )
+    total = count_result.scalar() or 0
+
+    # Get paginated results
+    query = base_query.offset(skip).limit(limit).order_by(Tender.created_at.desc())
     result = await db.execute(query)
     tenders = result.scalars().all()
 
-    return tenders
+    return {
+        "items": [TenderResponse.model_validate(t) for t in tenders],
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+        "has_more": skip + len(tenders) < total,
+    }
 
 
 @router.get("/tenders/{tender_id}", response_model=TenderResponse)
@@ -429,24 +444,41 @@ def set_scheduler(scheduler):
 
 
 @router.get("/scheduler")
-async def get_scheduler_status():
-    """Get scheduler status and jobs."""
+async def get_scheduler_status(db: AsyncSession = Depends(get_db)):
+    """Get scheduler status, jobs with run stats, and queue sizes."""
+    from src.scheduler.job_stats import job_stats
+
     if _scheduler is None:
         return {"error": "Scheduler not initialized"}
 
+    # Get queue counts
+    queue_result = await db.execute(
+        select(Tender.status, func.count(Tender.id))
+        .group_by(Tender.status)
+    )
+    queue_counts = {str(status.value): count for status, count in queue_result.all()}
+
     jobs = []
     for job in _scheduler.get_jobs():
-        jobs.append({
+        job_data = {
             "id": job.id,
             "name": job.name,
             "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
             "trigger": str(job.trigger),
-        })
+        }
+        # Add job stats if available
+        stats = job_stats.to_dict(job.id)
+        if stats:
+            job_data["stats"] = stats.get("last_run")
+            job_data["total_runs"] = stats.get("total_runs", 0)
+            job_data["total_processed"] = stats.get("total_processed", 0)
+        jobs.append(job_data)
 
     return {
         "running": _scheduler.running,
         "paused": not _scheduler.running,
         "jobs": jobs,
+        "queue": queue_counts,
     }
 
 
@@ -474,3 +506,90 @@ async def resume_scheduler():
         logger.info("Scheduler resumed via API")
 
     return {"status": "running", "running": _scheduler.running}
+
+
+# ============== Notifications Endpoints ==============
+
+
+@router.get("/notifications")
+async def list_notifications(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+):
+    """List recent notifications with their status."""
+    from src.models import Notification, NotificationStatus
+
+    result = await db.execute(
+        select(Notification)
+        .order_by(Notification.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    notifications = result.scalars().all()
+
+    return [
+        {
+            "id": n.id,
+            "tender_id": n.tender_id,
+            "client_id": n.client_id,
+            "type": n.notification_type.value,
+            "status": n.status.value,
+            "resend_id": n.resend_id,
+            "error_message": n.error_message,
+            "created_at": n.created_at.isoformat() if n.created_at else None,
+        }
+        for n in notifications
+    ]
+
+
+@router.get("/notifications/stats")
+async def get_notification_stats(db: AsyncSession = Depends(get_db)):
+    """Get notification statistics."""
+    from src.models import Notification, NotificationStatus
+
+    stats = {}
+    for status in NotificationStatus:
+        result = await db.execute(
+            select(func.count(Notification.id)).where(Notification.status == status)
+        )
+        stats[status.value] = result.scalar() or 0
+
+    return stats
+
+
+@router.post("/test-email")
+async def test_email(
+    email: str = Query(..., description="Email to send test to"),
+):
+    """Send a test email to verify Resend configuration."""
+    from src.services.email_service import email_service
+    from src.config import settings
+
+    if not settings.resend_api_key:
+        return {"success": False, "error": "RESEND_API_KEY not configured"}
+
+    try:
+        import resend
+        resend.api_key = settings.resend_api_key
+
+        response = resend.Emails.send({
+            "from": settings.email_from,
+            "to": [email],
+            "subject": "GovSniper Test Email",
+            "html": """
+            <h1>Test Email</h1>
+            <p>If you see this, email sending is working correctly!</p>
+            <p>Timestamp: """ + str(__import__('datetime').datetime.now()) + """</p>
+            """,
+        })
+
+        return {
+            "success": True,
+            "email_id": response.get("id"),
+            "to": email,
+            "from": settings.email_from,
+        }
+    except Exception as e:
+        logger.error(f"Test email failed: {e}")
+        return {"success": False, "error": str(e)}

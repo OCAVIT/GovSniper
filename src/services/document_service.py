@@ -180,6 +180,13 @@ class DocumentService:
                     logger.warning(f"File too large: {url}")
                     return None
 
+                # Check if we got HTML instead of a document (common for printForm errors)
+                content_type = response.headers.get("content-type", "")
+                if "text/html" in content_type and len(content) < 10000:
+                    # Likely an error page, not a real document
+                    logger.debug(f"Got HTML response instead of document: {url}")
+                    return None
+
                 # Extract filename from URL or Content-Disposition
                 filename = Path(urlparse(url).path).name
                 if "content-disposition" in response.headers:
@@ -187,8 +194,19 @@ class DocumentService:
                     if "filename=" in cd:
                         filename = re.findall(r'filename="?([^";\n]+)"?', cd)[0]
 
+                # Default filename for printForm
+                if not filename or filename == "view.html":
+                    filename = f"document_{hash(url) % 10000}.pdf"
+
                 return content, filename
 
+        except httpx.HTTPStatusError as e:
+            # 404 for printForm is common and expected, log at debug level
+            if e.response.status_code == 404 and "printForm" in url:
+                logger.debug(f"PrintForm not available (404): {url}")
+            else:
+                logger.error(f"Error downloading file {url}: {e}")
+            return None
         except Exception as e:
             logger.error(f"Error downloading file {url}: {e}")
             return None
