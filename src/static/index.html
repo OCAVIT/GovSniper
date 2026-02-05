@@ -93,6 +93,62 @@
                     </div>
                 </div>
 
+                <!-- 30-Day Test + Leadgen Funnel -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <!-- 30-Day Test Countdown -->
+                    <div class="bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg p-4 text-white">
+                        <div class="flex items-center justify-between mb-2">
+                            <h2 class="text-sm font-medium opacity-90">30-Day Test</h2>
+                            <button @click="resetTest()" class="text-xs opacity-70 hover:opacity-100">Сброс</button>
+                        </div>
+                        <div class="text-center py-2">
+                            <div class="text-4xl font-bold" x-text="getDaysLeft()" :class="getDaysLeft() <= 2 ? 'text-red-300' : ''"></div>
+                            <div class="text-sm opacity-80">дней осталось</div>
+                        </div>
+                        <div class="text-xs opacity-70 text-center mt-2">
+                            Старт: <span x-text="formatTestStart()"></span>
+                        </div>
+                        <!-- Verdict -->
+                        <div class="mt-3 pt-3 border-t border-white/20 text-xs">
+                            <template x-if="stats.successful_payments > 0">
+                                <div class="text-green-300 font-medium">Есть продажи! Проект работает.</div>
+                            </template>
+                            <template x-if="stats.successful_payments === 0 && getDaysLeft() === 0">
+                                <div class="text-red-300 font-medium">Тест завершён. 0 продаж.</div>
+                            </template>
+                            <template x-if="stats.successful_payments === 0 && getDaysLeft() > 0">
+                                <div class="opacity-80">Ожидание первой продажи...</div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- Leadgen Funnel -->
+                    <div class="bg-white rounded-lg border border-gray-200 p-4 md:col-span-2">
+                        <h2 class="text-sm font-medium text-gray-700 mb-3">Воронка лидгена</h2>
+                        <div class="space-y-2">
+                            <template x-for="(step, i) in leadgenFunnel" :key="i">
+                                <div class="flex items-center gap-3">
+                                    <div class="h-6 rounded transition-all duration-500"
+                                         :class="step.color"
+                                         :style="`width: ${Math.max(8, step.value / leadgenMaxValue * 100)}%`">
+                                    </div>
+                                    <div class="text-sm font-semibold w-12" x-text="step.value"></div>
+                                    <div class="text-xs text-gray-500 flex-1" x-text="step.label"></div>
+                                    <div class="text-xs" :class="step.value >= step.target ? 'text-green-600' : 'text-gray-400'">
+                                        <span x-show="step.value >= step.target">✓</span>
+                                        <span x-show="step.value < step.target" x-text="'/' + step.target"></span>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                        <div class="mt-3 pt-3 border-t border-gray-100 flex justify-between text-xs text-gray-500">
+                            <span>Авто-клиентов: <span class="font-medium" x-text="leadgen.clients_created || 0"></span></span>
+                            <span>С email: <span class="font-medium" x-text="leadgen.with_email || 0"></span></span>
+                            <span>Ожидают контакты: <span class="font-medium" x-text="leadgen.pending_contacts || 0"></span></span>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Token Usage Card -->
                 <div class="bg-white rounded-lg border border-gray-200 p-4 mb-6">
                     <div class="flex items-center justify-between mb-3">
@@ -566,13 +622,18 @@
                 refreshInterval: 60000, // 60 seconds - reduced load on Railway
                 autoRefreshEnabled: true,
                 queueCounts: {},
+                leadgen: {},
+                testStartKey: 'govsniper_test_start',
+                testDays: 30,
 
                 async init() {
+                    this.initTestDate();
                     await Promise.all([
                         this.loadStats(),
                         this.loadDailyStats(),
                         this.loadTokens(),
-                        this.loadScheduler()
+                        this.loadScheduler(),
+                        this.loadLeadgen()
                     ]);
                     this.lastUpdate = new Date();
 
@@ -587,7 +648,8 @@
                         await Promise.all([
                             this.loadStats(),
                             this.loadTokens(),
-                            this.loadScheduler()
+                            this.loadScheduler(),
+                            this.loadLeadgen()
                         ]);
                     } else if (this.page === 'tenders') {
                         await this.loadTenders();
@@ -665,6 +727,58 @@
                         await this.loadScheduler();
                     } catch (e) {
                         alert('Ошибка: ' + e.message);
+                    }
+                },
+
+                // Leadgen stats
+                async loadLeadgen() {
+                    try {
+                        this.leadgen = await this.api('/admin/leadgen/stats');
+                    } catch (e) {
+                        console.error('Failed to load leadgen:', e);
+                    }
+                },
+
+                get leadgenFunnel() {
+                    return [
+                        { label: 'Тендеров спарсено', value: this.stats.total_tenders || 0, target: 100, color: 'bg-blue-500' },
+                        { label: 'Проигравших извлечено', value: this.leadgen.total_participants || 0, target: 50, color: 'bg-indigo-500' },
+                        { label: 'Email найдено (DaData)', value: this.leadgen.with_email || 0, target: 20, color: 'bg-purple-500' },
+                        { label: 'Авто-клиентов создано', value: this.leadgen.clients_created || 0, target: 10, color: 'bg-pink-500' },
+                        { label: 'Тизеров отправлено', value: this.stats.notifications_sent || 0, target: 10, color: 'bg-orange-500' },
+                        { label: 'Продаж', value: this.stats.successful_payments || 0, target: 1, color: 'bg-green-500' },
+                    ];
+                },
+
+                get leadgenMaxValue() {
+                    return Math.max(...this.leadgenFunnel.map(s => s.value), 1);
+                },
+
+                // 30-Day Test
+                initTestDate() {
+                    if (!localStorage.getItem(this.testStartKey)) {
+                        localStorage.setItem(this.testStartKey, new Date().toISOString());
+                    }
+                },
+
+                getTestStart() {
+                    return new Date(localStorage.getItem(this.testStartKey) || new Date().toISOString());
+                },
+
+                getDaysLeft() {
+                    const start = this.getTestStart();
+                    const now = new Date();
+                    const elapsed = Math.floor((now - start) / (1000 * 60 * 60 * 24));
+                    return Math.max(0, this.testDays - elapsed);
+                },
+
+                formatTestStart() {
+                    return this.getTestStart().toLocaleDateString('ru-RU');
+                },
+
+                resetTest() {
+                    if (confirm('Сбросить 30-дневный тест? Отсчёт начнётся заново.')) {
+                        localStorage.setItem(this.testStartKey, new Date().toISOString());
                     }
                 },
 
