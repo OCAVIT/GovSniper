@@ -39,6 +39,9 @@ class EmailService:
         description: str,
         payment_url: str,
         report_price: int | None = None,
+        deadline: str | None = None,
+        days_left: int | None = None,
+        tender_price: str | None = None,
     ) -> str | None:
         """
         Send teaser email with tender summary and payment link.
@@ -52,6 +55,9 @@ class EmailService:
             description: Short tender description
             payment_url: YooKassa payment URL
             report_price: Dynamic price based on tender value (optional)
+            deadline: Formatted deadline string (optional)
+            days_left: Days until deadline (optional)
+            tender_price: Formatted tender price string (optional)
 
         Returns:
             Resend email ID if successful, None otherwise
@@ -66,6 +72,9 @@ class EmailService:
                 description=description,
                 payment_url=payment_url,
                 report_price=report_price or settings.report_price,
+                deadline=deadline,
+                days_left=days_left,
+                tender_price=tender_price,
             )
 
             # Determine risk level for subject

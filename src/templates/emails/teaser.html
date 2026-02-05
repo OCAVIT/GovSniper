@@ -38,6 +38,20 @@
             opacity: 0.9;
             margin-top: 5px;
         }
+        .urgency-banner {
+            background: linear-gradient(135deg, #c53030 0%, #9b2c2c 100%);
+            color: white;
+            padding: 12px 20px;
+            text-align: center;
+            font-weight: 600;
+        }
+        .urgency-banner .deadline {
+            font-size: 16px;
+        }
+        .urgency-banner .days-left {
+            font-size: 13px;
+            opacity: 0.9;
+        }
         .content {
             padding: 30px;
         }
@@ -45,8 +59,17 @@
             font-size: 18px;
             font-weight: 600;
             color: #1a365d;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
             line-height: 1.4;
+        }
+        .tender-price {
+            font-size: 14px;
+            color: #718096;
+            margin-bottom: 20px;
+        }
+        .tender-price strong {
+            color: #2d3748;
+            font-size: 16px;
         }
         .metrics {
             display: table;
@@ -74,15 +97,16 @@
         .risk-medium { color: #d69e2e; }
         .risk-high { color: #e53e3e; }
         .description {
-            background-color: #f7fafc;
+            background-color: #fff5f5;
+            border-left: 4px solid #e53e3e;
             padding: 20px;
-            border-radius: 8px;
+            border-radius: 0 8px 8px 0;
             margin-bottom: 25px;
         }
         .description-title {
             font-weight: 600;
             margin-bottom: 10px;
-            color: #2d3748;
+            color: #c53030;
         }
         .cta-section {
             text-align: center;
@@ -90,27 +114,22 @@
         }
         .cta-button {
             display: inline-block;
-            background: linear-gradient(135deg, #3182ce 0%, #2b6cb0 100%);
+            background: linear-gradient(135deg, #38a169 0%, #2f855a 100%);
             color: white !important;
             text-decoration: none;
-            padding: 15px 40px;
+            padding: 18px 45px;
             border-radius: 8px;
             font-weight: 600;
-            font-size: 16px;
+            font-size: 18px;
             transition: transform 0.2s;
         }
         .cta-button:hover {
             transform: translateY(-2px);
         }
-        .price-tag {
-            font-size: 24px;
-            font-weight: bold;
-            color: #2d3748;
-            margin-bottom: 10px;
-        }
         .price-note {
             font-size: 14px;
             color: #718096;
+            margin-top: 12px;
         }
         .benefits {
             margin-top: 25px;
@@ -138,6 +157,16 @@
             color: #38a169;
             font-weight: bold;
         }
+        .competition-note {
+            background-color: #fffaf0;
+            border: 1px solid #ed8936;
+            padding: 12px 15px;
+            border-radius: 6px;
+            margin-top: 20px;
+            font-size: 13px;
+            color: #c05621;
+            text-align: center;
+        }
         .footer {
             padding: 20px 30px;
             background-color: #f7fafc;
@@ -156,13 +185,28 @@
         <div class="email-wrapper">
             <div class="header">
                 <h1>🎯 GovSniper</h1>
-                <div class="subtitle">Найден новый тендер по вашим ключевым словам</div>
+                <div class="subtitle">Найден тендер по вашим ключевым словам</div>
             </div>
+
+            {% if deadline %}
+            <div class="urgency-banner">
+                <div class="deadline">⏰ Дедлайн подачи: {{ deadline }}</div>
+                {% if days_left is not none %}
+                <div class="days-left">{% if days_left <= 0 %}Срок истёк!{% elif days_left == 1 %}Остался 1 день!{% elif days_left <= 5 %}Осталось {{ days_left }} дней — времени мало!{% else %}Осталось {{ days_left }} дней{% endif %}</div>
+                {% endif %}
+            </div>
+            {% endif %}
 
             <div class="content">
                 <div class="tender-title">
                     {{ tender_title }}
                 </div>
+
+                {% if tender_price %}
+                <div class="tender-price">
+                    Сумма контракта: <strong>{{ tender_price }}</strong>
+                </div>
+                {% endif %}
 
                 <table class="metrics" cellspacing="10">
                     <tr>
@@ -170,43 +214,44 @@
                             <span class="metric-value {% if risk_score <= 30 %}risk-low{% elif risk_score <= 60 %}risk-medium{% else %}risk-high{% endif %}">
                                 {{ risk_score }}%
                             </span>
-                            <span class="metric-label">Риск</span>
+                            <span class="metric-label">Уровень риска</span>
                         </td>
                         <td class="metric">
                             <span class="metric-value" style="font-size: 20px;">
                                 {{ margin_estimate }}
                             </span>
-                            <span class="metric-label">Маржа</span>
+                            <span class="metric-label">Оценка маржи</span>
                         </td>
                     </tr>
                 </table>
 
                 <div class="description">
-                    <div class="description-title">Краткое описание:</div>
+                    <div class="description-title">⚠️ На что обратить внимание:</div>
                     {{ description }}
                 </div>
 
                 <div class="cta-section">
-                    <div class="price-tag">{{ report_price }} ₽</div>
-                    <div class="price-note">за полный аудит тендера</div>
-                    <br>
                     <a href="{{ payment_url }}" class="cta-button">
-                        Получить полный отчёт →
+                        Получить полный аудит за {{ report_price }} ₽
                     </a>
-                    <p style="font-size: 13px; color: #718096; margin-top: 15px;">
-                        ⚡ Отчёт придёт на вашу почту через 1-5 минут после оплаты
+                    <p class="price-note">
+                        ⚡ Отчёт придёт на почту через 1-5 минут после оплаты
                     </p>
                 </div>
 
                 <div class="benefits">
-                    <div class="benefits-title">Что включено в полный отчёт:</div>
+                    <div class="benefits-title">Что вы узнаете из полного отчёта:</div>
                     <ul>
-                        <li>Детальный анализ технического задания</li>
-                        <li>Выявление "зашитых" моделей оборудования</li>
-                        <li>Анализ нереалистичных сроков</li>
-                        <li>Скрытые штрафы и юридические ловушки</li>
-                        <li>Стратегия победы в тендере</li>
+                        <li>Все скрытые риски и «подводные камни»</li>
+                        <li>Зашитые модели оборудования и бренды</li>
+                        <li>Нереалистичные сроки и завышенные требования</li>
+                        <li>Штрафные санкции и юридические ловушки</li>
+                        <li>Рекомендации по стратегии участия</li>
                     </ul>
+                </div>
+
+                <div class="competition-note">
+                    🔥 Ваши конкуренты уже могут анализировать этот тендер
                 </div>
             </div>
 

@@ -1,6 +1,7 @@
 """Notification service for sending tender alerts to subscribers."""
 
 import logging
+from datetime import datetime, timezone
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +20,45 @@ from .email_service import email_service
 from .payment_service import payment_service
 
 logger = logging.getLogger(__name__)
+
+
+def format_price(price) -> str | None:
+    """Format price as readable Russian string."""
+    if not price:
+        return None
+    try:
+        value = float(price)
+        if value >= 1_000_000_000:
+            return f"{value / 1_000_000_000:.1f} млрд ₽"
+        elif value >= 1_000_000:
+            return f"{value / 1_000_000:.1f} млн ₽"
+        elif value >= 1_000:
+            return f"{value / 1_000:.0f} тыс ₽"
+        else:
+            return f"{value:.0f} ₽"
+    except (ValueError, TypeError):
+        return None
+
+
+def format_deadline(deadline: datetime | None) -> tuple[str | None, int | None]:
+    """Format deadline and calculate days left."""
+    if not deadline:
+        return None, None
+
+    try:
+        # Format deadline as readable string
+        deadline_str = deadline.strftime("%d.%m.%Y %H:%M")
+
+        # Calculate days left
+        now = datetime.now(timezone.utc)
+        if deadline.tzinfo is None:
+            deadline = deadline.replace(tzinfo=timezone.utc)
+        delta = deadline - now
+        days_left = delta.days
+
+        return deadline_str, days_left
+    except Exception:
+        return None, None
 
 
 class NotificationService:
@@ -113,6 +153,10 @@ class NotificationService:
                 db.add(notification)
                 await db.flush()
 
+                # Format deadline and price for email
+                deadline_str, days_left = format_deadline(tender.deadline)
+                tender_price_str = format_price(tender.price)
+
                 # Send email with dynamic price
                 resend_id = await email_service.send_teaser_email(
                     to_email=client.email,
@@ -123,6 +167,9 @@ class NotificationService:
                     description=tender.teaser_description or "Описание недоступно",
                     payment_url=payment_url,
                     report_price=report_price,
+                    deadline=deadline_str,
+                    days_left=days_left,
+                    tender_price=tender_price_str,
                 )
 
                 if resend_id:
