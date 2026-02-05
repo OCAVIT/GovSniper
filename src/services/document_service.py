@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
 from src.models import Tender, TenderStatus
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +167,117 @@ class DocumentService:
 
         logger.info(f"Found {len(unique_links)} document links")
         return unique_links
+
+    def _extract_deadline(self, html: str) -> datetime | None:
+        """Extract application deadline from tender common-info page.
+
+        zakupki.gov.ru deadline patterns:
+        - "Дата и время окончания подачи заявок" / "Дата и время окончания срока подачи заявок"
+        - "Дата окончания подачи заявок"
+        - Format: DD.MM.YYYY HH:MM (Moscow time)
+        """
+        soup = BeautifulSoup(html, "lxml")
+
+        # Pattern labels to look for (case insensitive)
+        deadline_labels = [
+            "дата и время окончания подачи заявок",
+            "дата и время окончания срока подачи заявок",
+            "дата окончания подачи заявок",
+            "окончание подачи заявок",
+            "срок подачи заявок",
+            "дата и время окончания срока подачи",
+        ]
+
+        # Try to find in table structure (common format)
+        for row in soup.find_all("tr"):
+            cells = row.find_all(["td", "th"])
+            if len(cells) >= 2:
+                label_text = cells[0].get_text(strip=True).lower()
+                for pattern in deadline_labels:
+                    if pattern in label_text:
+                        value_text = cells[1].get_text(strip=True)
+                        deadline = self._parse_deadline_string(value_text)
+                        if deadline:
+                            logger.info(f"Deadline extracted from table: {deadline}")
+                            return deadline
+
+        # Try div/span based layout (newer format)
+        for label in deadline_labels:
+            # Find by text content
+            elements = soup.find_all(string=lambda t: t and label in t.lower())
+            for elem in elements:
+                # Look for adjacent value element
+                parent = elem.parent
+                if parent:
+                    # Check next sibling
+                    next_elem = parent.find_next_sibling()
+                    if next_elem:
+                        value_text = next_elem.get_text(strip=True)
+                        deadline = self._parse_deadline_string(value_text)
+                        if deadline:
+                            logger.info(f"Deadline extracted from div: {deadline}")
+                            return deadline
+
+                    # Check parent's next sibling
+                    grandparent = parent.parent
+                    if grandparent:
+                        next_elem = grandparent.find_next_sibling()
+                        if next_elem:
+                            value_text = next_elem.get_text(strip=True)
+                            deadline = self._parse_deadline_string(value_text)
+                            if deadline:
+                                logger.info(f"Deadline extracted from grandparent: {deadline}")
+                                return deadline
+
+        # Fallback: regex search in full HTML
+        deadline_pattern = r'(?:окончани[яе].*?подачи.*?заявок|срок.*?подачи)[^\d]*(\d{2}\.\d{2}\.\d{4})\s*(?:(\d{2}:\d{2}))?'
+        match = re.search(deadline_pattern, html, re.IGNORECASE | re.DOTALL)
+        if match:
+            date_str = match.group(1)
+            time_str = match.group(2) if match.group(2) else "23:59"
+            deadline = self._parse_deadline_string(f"{date_str} {time_str}")
+            if deadline:
+                logger.info(f"Deadline extracted from regex: {deadline}")
+                return deadline
+
+        logger.debug("Deadline not found in HTML")
+        return None
+
+    def _parse_deadline_string(self, text: str) -> datetime | None:
+        """Parse deadline string into datetime.
+
+        Formats:
+        - DD.MM.YYYY HH:MM
+        - DD.MM.YYYY
+        - DD.MM.YYYY HH:MM:SS
+        """
+        if not text:
+            return None
+
+        # Clean up text
+        text = text.strip()
+
+        # Extract date and time using regex
+        match = re.search(r'(\d{2})\.(\d{2})\.(\d{4})\s*(\d{2}:\d{2})?(?::\d{2})?', text)
+        if not match:
+            return None
+
+        try:
+            day = int(match.group(1))
+            month = int(match.group(2))
+            year = int(match.group(3))
+            time_part = match.group(4)
+
+            if time_part:
+                hour, minute = map(int, time_part.split(":"))
+            else:
+                hour, minute = 23, 59  # Default to end of day
+
+            # Create datetime (Moscow time, but store as naive for simplicity)
+            return datetime(year, month, day, hour, minute)
+        except (ValueError, TypeError) as e:
+            logger.debug(f"Failed to parse deadline '{text}': {e}")
+            return None
 
     async def _download_file(self, url: str) -> tuple[bytes, str] | None:
         """Download file and return content with filename."""
@@ -356,6 +468,23 @@ class DocumentService:
         tender_url = tender.url
         if not tender_url.startswith("http"):
             tender_url = urljoin(self.base_url, tender_url)
+
+        # First, fetch common-info page to extract deadline
+        common_info_url = tender_url
+        if "documents.html" in common_info_url:
+            common_info_url = common_info_url.replace("documents.html", "common-info.html")
+        elif "supplier-results.html" in common_info_url:
+            common_info_url = common_info_url.replace("supplier-results.html", "common-info.html")
+
+        logger.debug(f"Common info URL: {common_info_url}")
+        common_info_html = await self._fetch_tender_page(common_info_url)
+
+        if common_info_html:
+            # Extract deadline from common-info page
+            deadline = self._extract_deadline(common_info_html)
+            if deadline:
+                tender.deadline = deadline
+                logger.info(f"Tender {tender.external_id} deadline: {deadline}")
 
         # Convert to documents page URL
         documents_url = self._build_documents_url(tender_url)
