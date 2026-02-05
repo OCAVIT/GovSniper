@@ -215,6 +215,8 @@
                                         <span x-text="tender.customer_name || 'Заказчик не указан'"></span>
                                         <span class="mx-1">•</span>
                                         <span x-text="tender.external_id"></span>
+                                        <span class="mx-1">•</span>
+                                        <span x-text="formatDateTimeMSK(tender.created_at)"></span>
                                     </div>
                                 </div>
                                 <div class="text-right flex-shrink-0">
@@ -394,6 +396,10 @@
                                 <span class="ml-1 px-2 py-0.5 text-xs rounded-full"
                                       :class="statusBadge(selectedTender.status)"
                                       x-text="statusLabel(selectedTender.status)"></span>
+                            </div>
+                            <div class="col-span-2">
+                                <span class="text-gray-500">Добавлен:</span>
+                                <span class="ml-1" x-text="formatDateTimeMSK(selectedTender.created_at)"></span>
                             </div>
                         </div>
 
@@ -642,6 +648,20 @@
                     if (!isoStr) return '';
                     const d = new Date(isoStr);
                     return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+                },
+
+                formatDateTimeMSK(isoStr) {
+                    if (!isoStr) return '';
+                    const d = new Date(isoStr);
+                    // Convert to Moscow timezone (UTC+3)
+                    return d.toLocaleString('ru-RU', {
+                        timeZone: 'Europe/Moscow',
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    }) + ' МСК';
                 },
 
                 statusLabel(status) {

@@ -79,6 +79,8 @@ class ScraperService:
 
         zakupki.gov.ru RSS format:
         <strong>Начальная цена контракта: </strong>198150.00
+        or
+        Начальная (максимальная) цена контракта: 198150.00
         """
         # Primary pattern: "Начальная цена" followed by closing </strong> then digits
         # This is the exact format from zakupki.gov.ru RSS
@@ -87,25 +89,36 @@ class ScraperService:
         if match:
             price_str = match.group(1).replace(" ", "").replace("\xa0", "").replace(",", ".")
             try:
-                return Decimal(price_str)
-            except Exception:
-                pass
+                price = Decimal(price_str)
+                logger.debug(f"Price extracted (primary pattern): {price}")
+                return price
+            except Exception as e:
+                logger.debug(f"Failed to parse price '{price_str}': {e}")
 
         # Fallback patterns for other formats
         fallback_patterns = [
+            # Pattern for "Начальная (максимальная) цена контракта: 123456.00"
+            r"Начальная\s*(?:\(максимальная\))?\s*цена[^:]*:\s*([\d\s,.]+)",
             r"Начальная\s+(?:максимальная\s+)?цена[^>]*>\s*([\d\s,.]+)",
             r"НМЦ[:\s]+([\d\s,.]+)",
             r"([\d\s]+(?:[.,]\d+)?)\s*(?:руб|₽|RUB)",
         ]
         text = f"{title} {description}"
-        for pattern in fallback_patterns:
+        for i, pattern in enumerate(fallback_patterns):
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
                 price_str = match.group(1).replace(" ", "").replace("\xa0", "").replace(",", ".")
                 try:
-                    return Decimal(price_str)
+                    price = Decimal(price_str)
+                    if price > 0:
+                        logger.debug(f"Price extracted (fallback {i}): {price}")
+                        return price
                 except Exception:
                     continue
+
+        # Log when price not found for debugging
+        if description:
+            logger.debug(f"Price not found in description (first 200 chars): {description[:200]}")
         return None
 
     def _should_skip(self, title: str, price: Decimal | None) -> bool:

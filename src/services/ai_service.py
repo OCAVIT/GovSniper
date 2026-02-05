@@ -126,21 +126,39 @@ class AIService:
         truncated_text = text[:8000] if len(text) > 8000 else text
 
         system_prompt = """Ты — эксперт по государственным закупкам России с 15-летним опытом.
-Твоя задача — быстро оценить тендер и дать краткую характеристику.
+Твоя задача — быстро оценить тендер и написать ПРОДАЮЩИЙ тизер, который заинтересует потенциального участника.
 
 Ответь строго в JSON формате:
 {
     "risk_score": <число от 0 до 100, где 100 = максимальный риск>,
     "margin_estimate": "<оценка маржи: 'низкая (до 10%)', 'средняя (10-20%)', 'высокая (20%+)' или конкретный диапазон>",
-    "description": "<краткое описание сути закупки в 2 предложениях>"
+    "description": "<тизер из 2-3 предложений с КОНКРЕТНЫМИ намёками>"
 }
+
+ВАЖНО для description:
+- Начни с сути закупки (что закупают)
+- ОБЯЗАТЕЛЬНО добавь 1-2 конкретных намёка на риски ИЛИ преимущества
+
+Если есть риски, намекни конкретно (примеры):
+- "Обратите внимание на сжатые сроки поставки — возможны штрафы"
+- "В ТЗ указаны конкретные модели оборудования — риск ограничения конкуренции"
+- "Крупное обеспечение контракта может заморозить оборотные средства"
+- "Сложная логистика до отдалённых регионов"
+- "Высокие требования к квалификации персонала"
+
+Если рисков мало, укажи преимущества:
+- "Стандартная закупка с понятными требованиями"
+- "Типовое ТЗ без специфических ограничений — высокая конкуренция"
+- "Комфортные сроки исполнения позволяют оптимизировать логистику"
+- "Крупный заказчик с хорошей платёжной дисциплиной"
 
 При оценке риска учитывай:
 - Сложность технического задания
-- Сроки выполнения
-- Наличие специфических требований
-- Размер обеспечения
-- Репутационные риски"""
+- Сроки выполнения (менее 30 дней = высокий риск)
+- Наличие конкретных моделей/брендов
+- Размер обеспечения (>5% от НМЦ = повышенный)
+- Штрафные санкции
+- Удалённость региона поставки"""
 
         user_prompt = f"""Оцени следующий тендер:
 
@@ -154,8 +172,8 @@ class AIService:
                     {"role": "user", "content": user_prompt},
                 ],
                 response_format={"type": "json_object"},
-                temperature=0.3,
-                max_tokens=500,
+                temperature=0.4,
+                max_tokens=700,
             )
 
             self._track_usage(response)
@@ -176,42 +194,47 @@ class AIService:
                 description="Автоматический анализ недоступен. Требуется ручная проверка.",
             )
 
-    async def analyze_deep_audit(self, text: str) -> DeepAnalysis:
-        """
-        Deep analysis after payment for detailed report.
+    def _split_into_chunks(self, text: str, chunk_size: int = 12000, overlap: int = 500) -> list[str]:
+        """Split text into overlapping chunks for processing."""
+        if len(text) <= chunk_size:
+            return [text]
 
-        Args:
-            text: Full tender documentation text
+        chunks = []
+        start = 0
+        while start < len(text):
+            end = start + chunk_size
+            # Try to break at paragraph or sentence boundary
+            if end < len(text):
+                # Look for paragraph break
+                break_pos = text.rfind("\n\n", start + chunk_size - 1000, end)
+                if break_pos == -1:
+                    # Look for sentence break
+                    break_pos = text.rfind(". ", start + chunk_size - 500, end)
+                if break_pos != -1:
+                    end = break_pos + 1
 
-        Returns:
-            DeepAnalysis with comprehensive audit results
-        """
-        # Allow more text for deep analysis
-        truncated_text = text[:30000] if len(text) > 30000 else text
+            chunks.append(text[start:end])
+            start = end - overlap  # Overlap for context continuity
 
-        system_prompt = """Ты — ведущий эксперт по государственным закупкам России.
-Проведи ДЕТАЛЬНЫЙ аудит тендерной документации.
+        return chunks
 
-Ответь строго в JSON формате:
+    async def _analyze_chunk(self, chunk: str, chunk_num: int, total_chunks: int) -> dict:
+        """Analyze a single chunk for risks and issues."""
+        system_prompt = """Ты — эксперт по госзакупкам. Анализируй фрагмент тендерной документации.
+
+Ответь в JSON:
 {
-    "equipment_models": ["список конкретных моделей оборудования, 'зашитых' в ТЗ, которые ограничивают конкуренцию"],
-    "unrealistic_deadlines": ["список пунктов с нереалистичными сроками поставки/работ"],
-    "hidden_penalties": ["список скрытых штрафов, неустоек и финансовых ловушек"],
-    "legal_risks": ["юридические риски и неоднозначные формулировки"],
-    "winning_strategy": "детальная стратегия победы в этом тендере",
-    "overall_assessment": "общая оценка и рекомендация (участвовать/не участвовать)",
-    "recommended_price": "рекомендуемая цена предложения (если возможно оценить) или null"
+    "equipment_models": ["конкретные модели/бренды/артикулы оборудования, ограничивающие конкуренцию"],
+    "unrealistic_deadlines": ["пункты с нереалистичными сроками"],
+    "hidden_penalties": ["штрафы, неустойки, финансовые ловушки"],
+    "legal_risks": ["юридические риски, неоднозначные формулировки"]
 }
 
-ОБЯЗАТЕЛЬНО найди:
-1. Конкретные модели оборудования — ищи артикулы, бренды, характеристики, которые подходят только одному поставщику
-2. Нереалистичные сроки — сравни со стандартными сроками в отрасли
-3. Скрытые штрафы — ищи пени, неустойки, условия расторжения
-4. Юридические ловушки — двойственные формулировки, противоречия в документах"""
+Если в этом фрагменте ничего не найдено — верни пустые массивы."""
 
-        user_prompt = f"""Проведи полный аудит тендера:
+        user_prompt = f"""Фрагмент {chunk_num}/{total_chunks} тендерной документации:
 
-{truncated_text}"""
+{chunk}"""
 
         try:
             response = await self.client.chat.completions.create(
@@ -222,25 +245,142 @@ class AIService:
                 ],
                 response_format={"type": "json_object"},
                 temperature=0.2,
-                max_tokens=4000,
+                max_tokens=2000,
             )
-
             self._track_usage(response)
-            result = json.loads(response.choices[0].message.content)
+            return json.loads(response.choices[0].message.content)
+        except Exception as e:
+            logger.error(f"Error analyzing chunk {chunk_num}: {e}")
+            return {"equipment_models": [], "unrealistic_deadlines": [], "hidden_penalties": [], "legal_risks": []}
 
+    async def _synthesize_findings(self, findings: dict, text_preview: str) -> dict:
+        """Synthesize all findings into final strategy and assessment."""
+        system_prompt = """Ты — ведущий эксперт по госзакупкам России.
+На основе собранных данных сформируй итоговую стратегию.
+
+Ответь в JSON:
+{
+    "winning_strategy": "детальная стратегия победы (3-5 пунктов)",
+    "overall_assessment": "общая оценка: участвовать или нет, с обоснованием",
+    "recommended_price": "рекомендуемая цена или null если невозможно оценить"
+}"""
+
+        findings_summary = f"""
+НАЙДЕННЫЕ ПРОБЛЕМЫ:
+
+Модели оборудования (ограничение конкуренции): {len(findings['equipment_models'])} шт.
+{chr(10).join('- ' + item for item in findings['equipment_models'][:10])}
+
+Нереалистичные сроки: {len(findings['unrealistic_deadlines'])} шт.
+{chr(10).join('- ' + item for item in findings['unrealistic_deadlines'][:10])}
+
+Скрытые штрафы: {len(findings['hidden_penalties'])} шт.
+{chr(10).join('- ' + item for item in findings['hidden_penalties'][:10])}
+
+Юридические риски: {len(findings['legal_risks'])} шт.
+{chr(10).join('- ' + item for item in findings['legal_risks'][:10])}
+
+НАЧАЛО ДОКУМЕНТАЦИИ (для контекста):
+{text_preview[:3000]}"""
+
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": findings_summary},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.3,
+                max_tokens=2000,
+            )
+            self._track_usage(response)
+            return json.loads(response.choices[0].message.content)
+        except Exception as e:
+            logger.error(f"Error synthesizing findings: {e}")
+            return {
+                "winning_strategy": "Требуется индивидуальный анализ",
+                "overall_assessment": "Требуется дополнительный анализ",
+                "recommended_price": None,
+            }
+
+    async def analyze_deep_audit(self, text: str) -> DeepAnalysis:
+        """
+        Deep analysis using Map-Reduce for large documents.
+
+        1. Split document into chunks
+        2. Analyze each chunk for risks (Map)
+        3. Merge all findings (Reduce)
+        4. Synthesize final strategy
+
+        Args:
+            text: Full tender documentation text
+
+        Returns:
+            DeepAnalysis with comprehensive audit results
+        """
+        import asyncio
+
+        if not text or len(text.strip()) < 100:
+            logger.warning("Empty or too short text for deep analysis")
             return DeepAnalysis(
-                equipment_models=result.get("equipment_models", []),
-                unrealistic_deadlines=result.get("unrealistic_deadlines", []),
-                hidden_penalties=result.get("hidden_penalties", []),
-                legal_risks=result.get("legal_risks", []),
-                winning_strategy=result.get("winning_strategy", "Требуется индивидуальный анализ"),
-                overall_assessment=result.get("overall_assessment", "Требуется дополнительный анализ"),
-                recommended_price=result.get("recommended_price"),
+                equipment_models=[],
+                unrealistic_deadlines=[],
+                hidden_penalties=[],
+                legal_risks=["Документация недоступна или слишком короткая"],
+                winning_strategy="Невозможно провести анализ без документации",
+                overall_assessment="Требуется загрузить документацию",
+                recommended_price=None,
             )
 
-        except Exception as e:
-            logger.error(f"Error in deep analysis: {e}")
-            raise RuntimeError(f"Deep analysis failed: {e}") from e
+        # Split into chunks
+        chunks = self._split_into_chunks(text)
+        logger.info(f"Deep analysis: {len(text)} chars split into {len(chunks)} chunks")
+
+        # Map: analyze each chunk in parallel
+        tasks = [
+            self._analyze_chunk(chunk, i + 1, len(chunks))
+            for i, chunk in enumerate(chunks)
+        ]
+        chunk_results = await asyncio.gather(*tasks)
+
+        # Reduce: merge all findings
+        merged = {
+            "equipment_models": [],
+            "unrealistic_deadlines": [],
+            "hidden_penalties": [],
+            "legal_risks": [],
+        }
+
+        for result in chunk_results:
+            for key in merged:
+                items = result.get(key, [])
+                if isinstance(items, list):
+                    merged[key].extend(items)
+
+        # Deduplicate (simple approach - exact matches)
+        for key in merged:
+            merged[key] = list(dict.fromkeys(merged[key]))
+
+        logger.info(
+            f"Findings: {len(merged['equipment_models'])} models, "
+            f"{len(merged['unrealistic_deadlines'])} deadlines, "
+            f"{len(merged['hidden_penalties'])} penalties, "
+            f"{len(merged['legal_risks'])} risks"
+        )
+
+        # Synthesize final strategy
+        synthesis = await self._synthesize_findings(merged, text)
+
+        return DeepAnalysis(
+            equipment_models=merged["equipment_models"],
+            unrealistic_deadlines=merged["unrealistic_deadlines"],
+            hidden_penalties=merged["hidden_penalties"],
+            legal_risks=merged["legal_risks"],
+            winning_strategy=synthesis.get("winning_strategy", "Требуется индивидуальный анализ"),
+            overall_assessment=synthesis.get("overall_assessment", "Требуется дополнительный анализ"),
+            recommended_price=synthesis.get("recommended_price"),
+        )
 
 
 # Singleton instance
