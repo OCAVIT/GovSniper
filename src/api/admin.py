@@ -109,6 +109,7 @@ class TenderResponse(BaseModel):
     risk_score: Optional[int]
     margin_estimate: Optional[str]
     teaser_description: Optional[str]
+    deadline: Optional[datetime]
     created_at: datetime
 
     class Config:
