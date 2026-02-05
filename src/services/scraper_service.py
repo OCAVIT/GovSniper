@@ -216,12 +216,14 @@ class ScraperService:
     async def process_feed(self, db: AsyncSession) -> int:
         """
         Fetch RSS feed and save new tenders to database.
+        Also updates price for existing tenders that have NULL price.
 
         Returns:
             Number of new tenders saved
         """
         entries = await self.fetch_rss()
         new_count = 0
+        updated_count = 0
 
         for entry in entries:
             # Apply filters
@@ -232,7 +234,14 @@ class ScraperService:
             existing = await db.execute(
                 select(Tender).where(Tender.external_id == entry.external_id)
             )
-            if existing.scalar_one_or_none():
+            existing_tender = existing.scalar_one_or_none()
+
+            if existing_tender:
+                # Update price if it's missing and we now have it
+                if existing_tender.price is None and entry.price is not None:
+                    existing_tender.price = entry.price
+                    updated_count += 1
+                    logger.info(f"Updated price for tender {entry.external_id}: {entry.price}")
                 continue
 
             # Create new tender
@@ -250,7 +259,7 @@ class ScraperService:
             logger.info(f"New tender saved: {entry.external_id} - {entry.title[:50]}")
 
         await db.commit()
-        logger.info(f"Saved {new_count} new tenders")
+        logger.info(f"Saved {new_count} new tenders, updated {updated_count} prices")
         return new_count
 
 
