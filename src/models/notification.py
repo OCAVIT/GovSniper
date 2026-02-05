@@ -51,11 +51,11 @@ class Notification(BaseModel):
 
     # Notification details
     notification_type: Mapped[NotificationType] = mapped_column(
-        SQLEnum(NotificationType),
+        SQLEnum(NotificationType, values_callable=lambda x: [e.value for e in x]),
         nullable=False,
     )
     status: Mapped[NotificationStatus] = mapped_column(
-        SQLEnum(NotificationStatus),
+        SQLEnum(NotificationStatus, values_callable=lambda x: [e.value for e in x]),
         default=NotificationStatus.PENDING,
         nullable=False,
     )
