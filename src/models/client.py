@@ -1,8 +1,11 @@
 """Client (subscriber) model."""
 
+import logging
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, String, Text
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -92,6 +95,7 @@ class Client(BaseModel):
             True if tender matches client's criteria
         """
         if not self.is_active:
+            logger.debug(f"Client {self.id} inactive, skipping")
             return False
 
         # Combine title and description for keyword matching
@@ -101,6 +105,9 @@ class Client(BaseModel):
 
         # Check keywords (case-insensitive)
         keyword_match = any(kw.lower() in search_text for kw in self.keywords)
+        matched_keywords = [kw for kw in self.keywords if kw.lower() in search_text]
+
+        logger.info(f"Client {self.id} matching: keywords={self.keywords}, matched={matched_keywords}, result={keyword_match}")
 
         if not keyword_match:
             return False

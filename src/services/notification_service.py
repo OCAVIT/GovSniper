@@ -46,7 +46,11 @@ class NotificationService:
         clients = result.scalars().all()
 
         matching = []
+        logger.info(f"Finding matches for tender {tender.id}: title='{tender.title[:50]}', desc='{(tender.teaser_description or '')[:50]}'")
+        logger.info(f"Active clients count: {len(clients)}")
+
         for client in clients:
+            logger.debug(f"Checking client {client.id} with keywords: {client.keywords}")
             if client.matches_tender(
                 tender.title,
                 float(tender.price) if tender.price else None,
