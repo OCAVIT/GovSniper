@@ -1,21 +1,53 @@
 """Admin API endpoints for managing clients and viewing statistics."""
 
 import logging
+import secrets
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.config import settings
 from src.db import get_db
 from src.models import Client, Notification, Payment, PaymentStatus, Tender, TenderStatus
 from src.models.participant import ParticipantResult, TenderParticipant
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+# Basic Auth (optional - enabled only if ADMIN_USERNAME and ADMIN_PASSWORD are set)
+security = HTTPBasic(auto_error=False)
+
+
+def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
+    """Verify admin credentials if configured."""
+    # If auth not configured, allow access
+    if not settings.admin_username or not settings.admin_password:
+        return None
+
+    # Auth is configured but no credentials provided
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+    correct_username = secrets.compare_digest(credentials.username, settings.admin_username)
+    correct_password = secrets.compare_digest(credentials.password, settings.admin_password)
+    if not (correct_username and correct_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
+
+
+router = APIRouter(dependencies=[Depends(verify_admin)])
 
 
 # ============== Schemas ==============

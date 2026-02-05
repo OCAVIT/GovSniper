@@ -94,6 +94,10 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = Field(default="INFO")
 
+    # Admin Auth (set via ADMIN_USERNAME and ADMIN_PASSWORD env vars)
+    admin_username: str = Field(default="", description="Admin username")
+    admin_password: str = Field(default="", description="Admin password")
+
     @field_validator("stop_words", mode="before")
     @classmethod
     def parse_stop_words(cls, v):

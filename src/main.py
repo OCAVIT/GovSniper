@@ -17,9 +17,12 @@ from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-from fastapi import FastAPI
+import secrets
+
+from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 
 from src.api import api_router
@@ -192,8 +195,33 @@ if static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 
+# Basic Auth for dashboard (optional - enabled only if ADMIN_USERNAME and ADMIN_PASSWORD are set)
+dashboard_security = HTTPBasic(auto_error=False)
+
+
+def verify_dashboard_auth(credentials: HTTPBasicCredentials = Depends(dashboard_security)):
+    """Verify admin credentials for dashboard access."""
+    if not settings.admin_username or not settings.admin_password:
+        return None
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    correct_username = secrets.compare_digest(credentials.username, settings.admin_username)
+    correct_password = secrets.compare_digest(credentials.password, settings.admin_password)
+    if not (correct_username and correct_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
+
+
 @app.get("/")
-async def root():
+async def root(_: str = Depends(verify_dashboard_auth)):
     """Serve UI dashboard or return API info."""
     index_file = static_dir / "index.html"
     if index_file.exists():
