@@ -35,7 +35,7 @@ class Settings(BaseSettings):
 
     # Resend Email
     resend_api_key: str = Field(default="", description="Resend API key")
-    email_from: str = Field(default="info@govsniper.ru", description="Sender email")
+    email_from: str = Field(default="GovSniper Analytics <info@govsniper.ru>", description="Sender email")
 
     # Application
     app_base_url: str = Field(default="http://localhost:8080", description="Base URL")
